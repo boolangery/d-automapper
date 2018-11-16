@@ -65,7 +65,7 @@ public:
     }
 
 
-
+    // Tell to explicitely map a field with another.
     final auto forMember(string ToMember, string FromMember)()
     {
         static assert(hasMember!(B, ToMember),   ToMember   ~ " is not a member of " ~ B.stringof);
@@ -79,6 +79,7 @@ public:
         return this;
     }
 
+    // Tell to map a field with the provided delegate.
     final auto forMember(string ToMember, T)(T delegate(A) mapper)
     {
         static assert(hasMember!(B, ToMember), ToMember ~ " is not a member of " ~ B.stringof);
@@ -92,6 +93,17 @@ public:
             __traits(getMember, to, ToMember) = mapper(from);
         };
 
+        return this;
+    }
+
+    // Tell to ignore a field in destination object.
+    final auto ignore(string ToMember)()
+    {
+        static assert(hasMember!(B, ToMember), ToMember ~ " is not a member of " ~ B.stringof);
+
+        _memberMappers[ToMember] = (A from, B to) {
+            // do nothing
+        };
 
         return this;
     }
@@ -104,19 +116,22 @@ unittest
         int ID = 4545;
         string firstName = "Eliott";
         string lastName = "Dumeix";
+        string ignore = "ignore";
     }
 
     static class B {
         string titre;
         int id;
         string author;
+        string ignore;
     }
 
     auto mapper = new AutoMapper();
     mapper.createMap!(A, B)
         .forMember!("titre", "title")
         .forMember!("id", "ID")
-        .forMember!("author")((src) => src.firstName ~ " " ~ src.lastName);
+        .forMember!("author")((src) => src.firstName ~ " " ~ src.lastName)
+        .ignore!"ignore";
 
     auto a = new A();
     auto b = mapper.map!B(new A());
@@ -124,6 +139,7 @@ unittest
     assert(b.titre == a.title);
     assert(b.id == a.ID);
     assert(b.author == "Eliott Dumeix");
+    assert(b.ignore == "");
 }
 
 unittest
