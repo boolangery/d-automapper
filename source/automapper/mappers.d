@@ -6,7 +6,7 @@ module automapper.mappers;
 import std.traits;
 import automapper;
 
-class Mapper(A, B) : MapperBase!(A, B) if (is(A == B))
+class Mapper(A, B) : MapperBase!(A, B) if ((is(A == B)) && !(is(A == class) && is(B == class)))
 {
     this(AutoMapper context) { super(context); }
 
@@ -109,6 +109,34 @@ public:
     }
 }
 
+// nest
+unittest
+{
+    static class Address {
+        int zipcode = 74000;
+    }
+
+    static class Person {
+        Address address = new Address();
+    }
+
+    static class PersonDTO {
+        Address address;
+    }
+
+    static class AddressDTO {
+        int zipcode;
+    }
+
+    auto mapper = new AutoMapper();
+    mapper.createMap!(Person, PersonDTO);
+
+    auto a = new Person();
+    auto b = mapper.map!PersonDTO(a);
+
+    assert(b.address.zipcode == 74000);
+}
+
 unittest
 {
     static class A {
@@ -134,7 +162,7 @@ unittest
         .ignore!"ignore";
 
     auto a = new A();
-    auto b = mapper.map!B(new A());
+    auto b = mapper.map!B(a);
 
     assert(b.titre == a.title);
     assert(b.id == a.ID);
@@ -160,7 +188,7 @@ unittest
     mapper.createMap!(A, B);
 
     auto a = new A();
-    auto b = mapper.map!B(new A());
+    auto b = mapper.map!B(a);
 
     assert(b.s == a.s);
     assert(b.i == a.i);
