@@ -21,10 +21,14 @@ class Mapper(A, B) : MapperBase!(A, B) if (is(A == class) && is(B == class))
 {
     import std.algorithm;
 
+private:
     enum ExcludedMember = [
         "Monitor"
     ];
 
+    string[string] _customMemberMapping;
+
+public:
     this(AutoMapper context) { super(context); }
 
     override B map(A value)
@@ -48,9 +52,37 @@ class Mapper(A, B) : MapperBase!(A, B) if (is(A == class) && is(B == class))
                             typeof(__traits(getMember, inst, memberOfA)))(__traits(getMember, value, memberOfA));
                     }
                 }
+                else if (memberOfA in _customMemberMapping) {
+
+                }
             }
         }
 
         return inst;
+    }
+
+
+
+    final auto forMember(string FromMember, string ToMember)()
+    {
+        static assert(hasMember!(B, FromMember), FromMember ~ " is not a member of " ~ B.stringof);
+        static assert(hasMember!(A, ToMember),   ToMember ~ " is not a member of " ~ A.stringof);
+
+
+
+        _customMemberMapping[FromMember] = ToMember;
+
+        return this;
+    }
+
+    unittest
+    {
+        auto mapper = new AutoMapper();
+        mapper.createMap!(ClassA, ClassC).forMember!("title", "str");
+
+        auto classC = mapper.map!(ClassA, ClassC)(new ClassA());
+        import std.stdio;
+        writeln(classC.title);
+        writeln(classC.value);
     }
 }

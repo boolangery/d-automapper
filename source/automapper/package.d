@@ -15,6 +15,8 @@ interface IMapper
 /// A mapper that map from A to B.
 abstract class MapperBase(A, B) : IMapper
 {
+    import std.traits;
+
     protected AutoMapper context;
 
     this(AutoMapper ctx)
@@ -31,6 +33,14 @@ abstract class MapperBase(A, B) : IMapper
 
     abstract B map(A value);
 }
+/*
+auto forMember(alias Func, A, B)(MapperBase!(A, B) mapper)
+{
+    pragma(msg, Func.stringof);
+}*/
+
+///
+
 
 class AutoMapper
 {
@@ -42,7 +52,7 @@ private:
     MapperByType[TypeInfo] _mappers;
 
 public:
-    IMapper createMap(A, B)()
+    auto createMap(A, B)()
     {
         debug pragma(msg, __PRETTY_FUNCTION__);
 
@@ -92,6 +102,12 @@ version(unittest)
         string str;
         long value;
     }
+
+    class ClassC
+    {
+        string title;
+        long value;
+    }
 }
 
 ///
@@ -102,7 +118,7 @@ unittest
 
     auto classB = mapper.map!(ClassA, ClassB)(new ClassA());
 
-    import std.stdio;
+   /* import std.stdio;
     writeln(classB.str);
-    writeln(classB.value);
+    writeln(classB.value);*/
 }
