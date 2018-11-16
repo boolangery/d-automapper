@@ -54,7 +54,7 @@ private:
 public:
     auto createMap(A, B)()
     {
-        debug pragma(msg, __PRETTY_FUNCTION__);
+        //debug pragma(msg, __PRETTY_FUNCTION__);
 
         import automapper.mappers;
 
@@ -64,9 +64,9 @@ public:
         return mapper;
     }
 
-    B map(A, B)(A a)
+    B map(B, A)(A a)
     {
-        debug pragma(msg, __PRETTY_FUNCTION__);
+        //debug pragma(msg, __PRETTY_FUNCTION__);
 
         IMapper mapper = null;
 
@@ -87,38 +87,4 @@ public:
 
         throw new Exception("unregistered type");
     }
-}
-
-version(unittest)
-{
-    class ClassA
-    {
-        string str = "foo";
-        long value = 42;
-    }
-
-    class ClassB
-    {
-        string str;
-        long value;
-    }
-
-    class ClassC
-    {
-        string title;
-        long value;
-    }
-}
-
-///
-unittest
-{
-    auto mapper = new AutoMapper();
-    mapper.createMap!(ClassA, ClassB)();
-
-    auto classB = mapper.map!(ClassA, ClassB)(new ClassA());
-
-   /* import std.stdio;
-    writeln(classB.str);
-    writeln(classB.value);*/
 }

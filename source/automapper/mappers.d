@@ -26,63 +26,127 @@ private:
         "Monitor"
     ];
 
-    string[string] _customMemberMapping;
+    alias CustomMappingOperation = void delegate(A, B);
+    CustomMappingOperation[string] _memberMappers;
 
 public:
-    this(AutoMapper context) { super(context); }
+    this(AutoMapper context)
+    {
+        super(context);
+
+        // iterate all members of A
+        static foreach(memberOfA; [__traits(allMembers, A)]) {
+            // select non callable member of A and not in excluded list
+            static if (!isCallable!(__traits(getMember, A, memberOfA)) && !ExcludedMember.canFind(memberOfA)) {
+                // check if B has member A
+                static if (__traits(hasMember, B, memberOfA)) {
+                    // check same type
+                    // static if (typeid(__traits(getMember, value, memberOfA)) is typeid(__traits(getMember, inst, memberOfA))) {
+                        _memberMappers[memberOfA] = (A from, B to) {
+                            __traits(getMember, to, memberOfA) = context.map!(typeof(__traits(getMember, from, memberOfA)),
+                                typeof(__traits(getMember, to, memberOfA)))(__traits(getMember, from, memberOfA));
+                        };
+                    //}
+                }
+            }
+        }
+
+    }
 
     override B map(A value)
     {
         // TODO: assert default constructor
         B inst = new B();
 
-        // iterate all members of A
-        static foreach(memberOfA; [__traits(allMembers, A)]) {
-            // select non callable member of A and not in excluded list
-            static if (!isCallable!(__traits(getMember, value, memberOfA)) && !ExcludedMember.canFind(memberOfA)) {
-
-                // check if B has member A
-                static if (__traits(hasMember, B, memberOfA)) {
-                    // check same type
-                    static if (typeid(__traits(getMember, value, memberOfA)) is typeid(__traits(getMember, inst, memberOfA))) {
-
-                        pragma(msg, memberOfA);
-
-                        __traits(getMember, inst, memberOfA) = context.map!(typeof(__traits(getMember, value, memberOfA)),
-                            typeof(__traits(getMember, inst, memberOfA)))(__traits(getMember, value, memberOfA));
-                    }
-                }
-                else if (memberOfA in _customMemberMapping) {
-
-                }
-            }
-        }
+        foreach(mapper; _memberMappers)
+            mapper(value, inst);
 
         return inst;
     }
 
 
 
-    final auto forMember(string FromMember, string ToMember)()
+    final auto forMember(string ToMember, string FromMember)()
     {
-        static assert(hasMember!(B, FromMember), FromMember ~ " is not a member of " ~ B.stringof);
-        static assert(hasMember!(A, ToMember),   ToMember ~ " is not a member of " ~ A.stringof);
+        static assert(hasMember!(B, ToMember),   ToMember   ~ " is not a member of " ~ B.stringof);
+        static assert(hasMember!(A, FromMember), FromMember ~ " is not a member of " ~ A.stringof);
 
-
-
-        _customMemberMapping[FromMember] = ToMember;
+        _memberMappers[ToMember] = (A from, B to) {
+            __traits(getMember, to, ToMember) = context.map!(typeof(__traits(getMember, from, FromMember)),
+                typeof(__traits(getMember, to, ToMember)))(__traits(getMember, from, FromMember));
+        };
 
         return this;
     }
 
-    unittest
+    final auto forMember(string ToMember, T)(T delegate(A) mapper)
     {
-        auto mapper = new AutoMapper();
-        mapper.createMap!(ClassA, ClassC).forMember!("title", "str");
+        static assert(hasMember!(B, ToMember), ToMember ~ " is not a member of " ~ B.stringof);
 
-        auto classC = mapper.map!(ClassA, ClassC)(new ClassA());
-        import std.stdio;
-        writeln(classC.title);
-        writeln(classC.value);
+        _memberMappers[ToMember] = (A from, B to) {
+            static assert(is(typeof(__traits(getMember, to, ToMember)) == T),
+                "incompatible types: " ~ B.stringof ~ "." ~ ToMember ~ " is a "
+                ~ typeof(__traits(getMember, to, ToMember)).stringof ~ ", the delegate return type is "
+                ~ T.stringof);
+
+            __traits(getMember, to, ToMember) = mapper(from);
+        };
+
+
+        return this;
     }
+}
+
+unittest
+{
+    static class A {
+        string title = "gone";
+        int ID = 4545;
+        string firstName = "Eliott";
+        string lastName = "Dumeix";
+    }
+
+    static class B {
+        string titre;
+        int id;
+        string author;
+    }
+
+    auto mapper = new AutoMapper();
+    mapper.createMap!(A, B)
+        .forMember!("titre", "title")
+        .forMember!("id", "ID")
+        .forMember!("author")((src) => src.firstName ~ " " ~ src.lastName);
+
+    auto a = new A();
+    auto b = mapper.map!B(new A());
+
+    assert(b.titre == a.title);
+    assert(b.id == a.ID);
+    assert(b.author == "Eliott Dumeix");
+}
+
+unittest
+{
+    static class A {
+        string s = "1";
+        int i = 2;
+        float f = 3.4;
+    }
+
+    static class B {
+        string s;
+        int i;
+        float f;
+    }
+
+    auto mapper = new AutoMapper();
+    mapper.createMap!(A, B);
+
+    auto a = new A();
+    auto b = mapper.map!B(new A());
+
+    assert(b.s == a.s);
+    assert(b.i == a.i);
+    assert(b.f == a.f);
 }
