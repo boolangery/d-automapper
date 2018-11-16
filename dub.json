@@ -1,0 +1,9 @@
+{
+	"name": "automapper",
+	"authors": [
+		"Eliott Dumeix"
+	],
+	"description": "D automapper",
+	"license": "MIT",
+	"targetType": "library"
+}
