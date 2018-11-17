@@ -6,7 +6,18 @@ module automapper.mappers;
 import std.traits;
 import automapper;
 
-class Mapper(A, B) : MapperBase!(A, B) if ((is(A == B)) && !(is(A == class) && is(B == class)))
+template isClass(T)
+{
+    enum bool isClass = (is(T == class));
+}
+
+template areSame(T, V)
+{
+    enum bool areSame = (is(T == V));
+}
+
+/// Mapper for same primitive types.
+class Mapper(A, B) : MapperBase!(A, B) if (areSame!(A, B) && !(isClass!A && isClass!B))
 {
     this(AutoMapper context) { super(context); }
 
@@ -16,8 +27,19 @@ class Mapper(A, B) : MapperBase!(A, B) if ((is(A == B)) && !(is(A == class) && i
     }
 }
 
+/// Mapper for incorrect types
+class Mapper(A, B) : MapperBase!(A, B) if (!areSame!(A, B) && !(isClass!A && isClass!B))
+{
+    this(AutoMapper context) { super(context); }
+
+    override B map(A value)
+    {
+        static assert(false, "Cannot auto-map from type " ~ A.stringof ~ " to type " ~ B.stringof);
+    }
+}
+
 /// A class mapper.
-class Mapper(A, B) : MapperBase!(A, B) if (is(A == class) && is(B == class))
+class Mapper(A, B) : MapperBase!(A, B) if (isClass!A && isClass!B)
 {
     import std.algorithm;
 
@@ -109,6 +131,7 @@ public:
     }
 }
 
+
 // nest
 unittest
 {
@@ -129,9 +152,7 @@ unittest
     }
 
 
-
     auto mapper = new AutoMapper();
-    // mapper.createMap!(Address, AddressDTO);
     mapper.createMap!(Person, PersonDTO);
 
     auto a = new Person();
