@@ -54,8 +54,6 @@ private:
 public:
     auto createMap(A, B)()
     {
-        //debug pragma(msg, __PRETTY_FUNCTION__);
-
         import automapper.mappers;
 
         auto mapper = new Mapper!(A, B)(this);
@@ -66,8 +64,6 @@ public:
 
     B map(B, A)(A a)
     {
-        //debug pragma(msg, __PRETTY_FUNCTION__);
-
         IMapper mapper = null;
 
         if (typeid(A) in _mappers) {

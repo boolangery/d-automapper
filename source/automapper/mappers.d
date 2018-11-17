@@ -43,8 +43,8 @@ public:
                     // check same type
                     // static if (typeid(__traits(getMember, value, memberOfA)) is typeid(__traits(getMember, inst, memberOfA))) {
                         _memberMappers[memberOfA] = (A from, B to) {
-                            __traits(getMember, to, memberOfA) = context.map!(typeof(__traits(getMember, from, memberOfA)),
-                                typeof(__traits(getMember, to, memberOfA)))(__traits(getMember, from, memberOfA));
+                            __traits(getMember, to, memberOfA) = context.map!(typeof(__traits(getMember, to, memberOfA)),
+                                typeof(__traits(getMember, from, memberOfA)))(__traits(getMember, from, memberOfA));
                         };
                     //}
                 }
@@ -120,15 +120,18 @@ unittest
         Address address = new Address();
     }
 
-    static class PersonDTO {
-        Address address;
-    }
-
     static class AddressDTO {
         int zipcode;
     }
 
+    static class PersonDTO {
+        AddressDTO address;
+    }
+
+
+
     auto mapper = new AutoMapper();
+    // mapper.createMap!(Address, AddressDTO);
     mapper.createMap!(Person, PersonDTO);
 
     auto a = new Person();
