@@ -153,6 +153,33 @@ unittest
     static assert(hasNestedMember!(C, "bar.foo.bar"));
 }
 
+template isPublicMember(T, string M)
+{
+	import std.algorithm, std.typetuple : TypeTuple;
+
+	static if (!__traits(compiles, TypeTuple!(__traits(getMember, T, M)))) enum isPublicMember = false;
+	else {
+		alias MEM = TypeTuple!(__traits(getMember, T, M));
+		static if (__traits(compiles, __traits(getProtection, MEM)))
+			enum isPublicMember = __traits(getProtection, MEM).among("public", "export");
+		else
+			enum isPublicMember = true;
+	}
+}
+///
+unittest
+{
+    static class A {
+        public int bar;
+        protected string foo;
+        private int baz;
+    }
+
+    static assert(isPublicMember!(A, "bar"));
+    static assert(!isPublicMember!(A, "foo"));
+    static assert(!isPublicMember!(A, "baz"));
+}
+
 string GetMember(alias T, string member)()
 {
     return (q{%s.%s}.format(T.stringof, member));
@@ -172,6 +199,97 @@ unittest
     auto b = new B();
 
     mixin(GetMember!(b, "foo.bar")) = 42;
+}
+
+/** Get a list of all public class member.
+Params:
+    T = The class where to list member
+    IgnoreList = a list of field to ignore. Default is ["toString",     "toHash",   "opCmp",
+        "opEquals",     "Monitor",  "factory"]. */
+template ClassMembers(T, string[] IgnoreList = null) if (is(T == class))
+{
+    import std.algorithm : canFind;
+
+    static immutable string[] MembersToIgnore = [
+        "toString",     "toHash",   "opCmp",
+        "opEquals",     "Monitor",  "factory"];
+
+    template ClassMembersImpl(size_t idx)
+    {
+        static if (idx < [__traits(allMembers, T)].length) {
+            enum M = __traits(allMembers, T)[idx];
+            static if (!isCallable!M && ((IgnoreList is null) ? !MembersToIgnore.canFind(M) : !IgnoreList.canFind(M))
+                    && isPublicMember!(T, M))
+                enum string[] ClassMembersImpl = M ~ ClassMembersImpl!(idx + 1);
+            else
+                enum string[] ClassMembersImpl = ClassMembersImpl!(idx + 1); // skip
+        }
+        else {
+            enum string[] ClassMembersImpl = [];
+        }
+    }
+
+    enum string[] ClassMembers = ClassMembersImpl!0;
+}
+
+
+///
+unittest
+{
+    static class A {
+        int bar;
+        string foo;
+        private int priv;
+    }
+    static assert(ClassMembers!A == ["bar", "foo"]);
+    static assert(ClassMembers!(A, []) != ["bar", "foo"]);
+}
+
+/** Get a list of flatenned class member. */
+template FlattenedClassMembers(T, string[] IgnoreList = null) if (is(T == class))
+{
+    import std.string : join;
+
+    template FlattenedClassMembersImpl(U, size_t idx, string prefix)
+    {
+        static if (idx < ClassMembers!U.length) {
+            enum M = ClassMembers!U[idx];
+            enum P = (prefix == "" ? "" : prefix ~ "."); // prefix
+
+            // it's a class: recurse
+            static if (is(MemberType!(U, M) == class))
+                enum string[] FlattenedClassMembersImpl = FlattenedClassMembersImpl!(MemberType!(U, M), 0, P ~ M) ~ FlattenedClassMembersImpl!(U, idx + 1, prefix);
+            else
+                enum string[] FlattenedClassMembersImpl = P ~ M ~ FlattenedClassMembersImpl!(U, idx + 1, prefix);
+        }
+        else {
+            enum string[] FlattenedClassMembersImpl = [];
+        }
+    }
+
+    enum string[] FlattenedClassMembers = FlattenedClassMembersImpl!(T, 0, "");
+}
+
+///
+unittest
+{
+    static class A {
+        int bar;
+        string str;
+        private int dum;
+    }
+
+    static class B {
+        A foo;
+        int mid;
+    }
+
+    static class C {
+        B baz;
+        int top;
+    }
+
+    static assert(FlattenedClassMembers!C == ["baz.foo.bar", "baz.foo.str", "baz.mid", "top"]);
 }
 
 
@@ -231,6 +349,19 @@ class AutoMapper
                 enum string[] buildMappedMemberList = [];
         }
 
+        enum string[] mappedMembers = buildMappedMemberList!(Mappings);
+
+        // try to auto-map un-mapped member
+
+        // warn about un-mapped members in B
+        static foreach(member; [__traits(allMembers, B)]) {
+            static if (!isCallable!member && !MembersToIgnore.canFind(member)) {
+                static if (!mappedMembers.canFind(member)) {
+                    static assert(false, "non mapped member in destination object '" ~ B.stringof ~"." ~ member ~ "'");
+                }
+            }
+        }
+
         // Compile time created mapper
         alias class Mapper : BaseMapper!(A, B) {
             this(AutoMapper context)
@@ -276,18 +407,30 @@ class AutoMapper
                 return b;
             }
         }
-
-        enum string[] mappedMembers = buildMappedMemberList!(Mappings);
-
-        // warn about non mapped members in B
-        static foreach(member; [__traits(allMembers, B)]) {
-            static if (!isCallable!member && !MembersToIgnore.canFind(member)) {
-                static if (!mappedMembers.canFind(member)) {
-                    static assert(false, "non mapped member in destination object '" ~ B.stringof ~"." ~ member ~ "'");
-                }
-            }
-        }
     }
+}
+
+// auto
+unittest
+{
+    static class A {
+        string str = "foo";
+        int number = 42;
+    }
+
+    static class B {
+        string str;
+        int number;
+    }
+
+    auto am = new AutoMapper();
+/*
+    am.createMapper!(A, B);
+
+    A a = new A();
+    B b = am.map!B(a);
+    assert(b.str == a.str);
+    assert(b.number == a.number);*/
 }
 
 // flatennig
