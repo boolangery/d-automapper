@@ -124,7 +124,10 @@ template hasNestedMember(T, string members)
 
     static if (is(T t == T)) {
         static if (memberSplited.length > 1)
-            enum bool hasNestedMember = hasNestedMember!(MemberType!(T, memberSplited[0]), memberSplited[1..$].join("."));
+            static if (__traits(hasMember, T, memberSplited[0]))
+                enum bool hasNestedMember = hasNestedMember!(MemberType!(T, memberSplited[0]), memberSplited[1..$].join("."));
+            else
+                enum bool hasNestedMember = false;
         else
             enum bool hasNestedMember = __traits(hasMember, t, members);
     }
@@ -146,6 +149,7 @@ unittest
     }
 
     static assert(hasNestedMember!(B, "foo.bar"));
+    static assert(!hasNestedMember!(B, "data.bar"));
     static assert(!hasNestedMember!(B, "foo.baz"));
     static assert(hasNestedMember!(B, "foo"));
     static assert(!hasNestedMember!(B, "fooz"));
@@ -357,11 +361,11 @@ class AutoMapper
                     B b = new B();
 
                     static foreach(Mapping; Mappings) {
-                        static assert(hasMember!(B, Mapping.BMember), Mapping.BMember ~ " is not a member of " ~ A.stringof);
+                        static assert(hasMember!(B, Mapping.BMember), Mapping.BMember ~ " is not a member of " ~ B.stringof);
 
                         // ForMember (works with nested member)
                         static if (isForMember!Mapping) {
-                            static assert(hasNestedMember!(A, Mapping.AMember), Mapping.AMember ~ " is not a member of " ~ B.stringof);
+                            static assert(hasNestedMember!(A, Mapping.AMember), Mapping.AMember ~ " is not a member of " ~ A.stringof);
 
                             static if (is(MemberType!(B, Mapping.BMember) == MemberType!(A, Mapping.AMember))) {
                                 __traits(getMember, b, Mapping.BMember) = mixin(GetMember!(a, Mapping.AMember));
@@ -403,9 +407,7 @@ class AutoMapper
 
         // get un-mapper flattened member present in B (recursive template)
         template getUnMappedMembers() {
-
             template getUnMappedMembersImpl(size_t idx) {
-
                 static if (idx < FlattenedClassMembers!A.length) {
                     enum M = FlattenedClassMembers!A[idx];
 
@@ -428,7 +430,6 @@ class AutoMapper
             enum UM = getUnMappedMembers!();
 
             template completeUserMappingImpl(size_t idx) {
-
                 static if (idx < UM.length) {
                     enum M = UM[idx];
 
@@ -443,8 +444,6 @@ class AutoMapper
             alias completeUserMapping = TypeTuple!(completeUserMappingImpl!0, UserMappings);
         }
 
-
-
         alias Mapper = MapperImpl!(A, B, completeUserMapping!(UserMappings));
     }
 }
@@ -452,14 +451,20 @@ class AutoMapper
 // auto
 unittest
 {
+    static class D {
+        int foo = 56;
+    }
+
     static class A {
         string str = "foo";
         int number = 42;
+        D data = new D();
     }
 
     static class B {
         string str;
         int number;
+        //int dataFoo;
     }
 
     auto am = new AutoMapper();
@@ -470,6 +475,7 @@ unittest
     B b = am.map!B(a);
     assert(b.str == a.str);
     assert(b.number == a.number);
+    //assert(b.dataFoo == a.data.foo);
 }
 
 // flatennig
