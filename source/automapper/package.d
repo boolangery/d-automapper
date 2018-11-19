@@ -73,10 +73,68 @@ public:
     abstract B map(A a);
 }
 
-template MemberType(alias from, string member)
+/** Get an alias on the member type.
+Params:
+    T = the type where the member is
+    member = the member to alias */
+template MemberType(T, string member)
 {
-    alias MemberType = typeof(__traits(getMember, from, member));
+    static if (is(T t == T))
+        alias MemberType = typeof(__traits(getMember, t, member));
 }
+
+///
+unittest
+{
+    static class A {
+        int bar;
+        string baz;
+    }
+
+    static assert(is(MemberType!(A, "bar") == int));
+    static assert(is(MemberType!(A, "baz") == string));
+}
+
+/** Test existance of the nested member (or not nested).
+Params:
+    T = The type where member are nested
+    members = the member to test (e.g. "foo.bar.baz") */
+template hasNestedMember(T, string members)
+{
+    import std.string : split, join;
+    enum string[] memberSplited = members.split(".");
+
+    static if (is(T t == T)) {
+        static if (memberSplited.length > 1)
+            enum bool hasNestedMember = hasNestedMember!(MemberType!(T, memberSplited[0]), memberSplited[1..$].join("."));
+        else
+            enum bool hasNestedMember = __traits(hasMember, t, members);
+    }
+}
+
+///
+unittest
+{
+    static class A {
+        int bar;
+    }
+
+    static class B {
+        A foo;
+    }
+
+    static class C {
+        B bar;
+    }
+
+    static assert(hasNestedMember!(B, "foo.bar"));
+    static assert(!hasNestedMember!(B, "foo.baz"));
+    static assert(hasNestedMember!(B, "foo"));
+    static assert(!hasNestedMember!(B, "fooz"));
+    static assert(!hasNestedMember!(C, "bar.foo.baz"));
+    static assert(hasNestedMember!(C, "bar.foo.bar"));
+}
+
 
 /** Automappler help you create mapper.
 Mapper are generated at compile-time.
@@ -151,20 +209,20 @@ class AutoMapper
                     static if (isForMember!Mapping) {
                         static assert(hasMember!(A, Mapping.AMember), Mapping.AMember ~ " is not a member of " ~ B.stringof);
 
-                        static if (is(MemberType!(b, Mapping.BMember) == MemberType!(a, Mapping.AMember)))
+                        static if (is(MemberType!(B, Mapping.BMember) == MemberType!(A, Mapping.AMember)))
                             __traits(getMember, b, Mapping.BMember) = __traits(getMember, a, Mapping.AMember);
                         else {
                             __traits(getMember, b, Mapping.BMember) = context.map!(
-                                MemberType!(b, Mapping.BMember),
-                                MemberType!(a, Mapping.AMember))(__traits(getMember, a, Mapping.AMember));
+                                MemberType!(B, Mapping.BMember),
+                                MemberType!(A, Mapping.AMember))(__traits(getMember, a, Mapping.AMember));
                         }
                     }
                     // ForMemberFunc
                     else static if (isForMemberFunc!Mapping) {
                         // static assert return type
-                        static assert(is(ReturnType!(Mapping.Func) == typeof(__traits(getMember, b, Mapping.BMember))),
+                        static assert(is(ReturnType!(Mapping.Func) == MemberType!(B, Mapping.BMember)),
                             "the func in " ~ isForMemberFunc.stringof ~ " must return a '" ~
-                            typeof(__traits(getMember, b, Mapping.BMember)).stringof ~ "' like " ~ B.stringof ~
+                            MemberType!(B, Mapping.BMember).stringof ~ "' like " ~ B.stringof ~
                             "." ~ Mapping.BMember);
                         // static assert parameters
                         static assert(isSame!(Parameters!(Mapping.Func), A),
@@ -189,6 +247,31 @@ class AutoMapper
             }
         }
     }
+}
+
+// flatennig
+unittest
+{
+    static class Address {
+        int zipcode = 74000;
+    }
+
+    static class A {
+        Address address = new Address();
+    }
+
+    static class B {
+        int addressZipcode;
+    }
+
+    auto am = new AutoMapper();
+
+    /*am.createMapper!(A, B,
+        ForMember!("addressZipcode", "address.zipcode"));
+
+    A a = new A();
+    B b = am.map!B(a);
+    assert(b.addressZipcode == a.address.zipcode);*/
 }
 
 // nest
@@ -218,12 +301,9 @@ unittest
     am.createMapper!(A, B,
         ForMember!("address", "address"));
 
-
     A a = new A();
     B b = am.map!B(a);
-
     assert(b.address.zipcode == a.address.zipcode);
-
 }
 
 unittest
