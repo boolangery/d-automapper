@@ -354,13 +354,9 @@ class AutoMapper
         // try to auto-map un-mapped member
 
         // warn about un-mapped members in B
-        static foreach(member; [__traits(allMembers, B)]) {
-            static if (!isCallable!member && !MembersToIgnore.canFind(member)) {
-                static if (!mappedMembers.canFind(member)) {
-                    static assert(false, "non mapped member in destination object '" ~ B.stringof ~"." ~ member ~ "'");
-                }
-            }
-        }
+        static foreach(member; ClassMembers!B)
+            static if (!mappedMembers.canFind(member))
+                static assert(false, "non mapped member in destination object '" ~ B.stringof ~"." ~ member ~ "'");
 
         // Compile time created mapper
         alias class Mapper : BaseMapper!(A, B) {
