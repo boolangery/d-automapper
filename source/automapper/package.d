@@ -83,6 +83,8 @@ Mapper are generated at compile-time.
 */
 class AutoMapper
 {
+    import std.meta : allSatisfy;
+
     alias MapperByType = IMapper[TypeInfo];
     MapperByType[TypeInfo] _mappers;
 

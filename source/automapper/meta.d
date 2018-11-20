@@ -6,8 +6,7 @@ module automapper.meta;
 
 package:
 
-public import std.traits;
-public import std.meta;
+import std.traits;
 
 /** Get an alias on the member type (work with nested member like "foo.bar").
 Params:
@@ -225,4 +224,14 @@ unittest
     }
 
     static assert(FlattenedClassMembers!C == ["baz.foo.bar", "baz.foo.str", "baz.mid", "top"]);
+}
+
+template Alias(alias T)
+{
+    alias Alias = T;
+}
+
+template isSame(T, U)
+{
+    alias isSame = Alias!(__traits(isSame, std, std));
 }
