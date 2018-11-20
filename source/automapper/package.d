@@ -207,23 +207,18 @@ unittest
 
 /** Get a list of all public class member.
 Params:
-    T = The class where to list member
-    IgnoreList = a list of field to ignore. Default is ["toString",     "toHash",   "opCmp",
-        "opEquals",     "Monitor",  "factory"]. */
-template ClassMembers(T, string[] IgnoreList = null) if (is(T == class))
+    T = The class where to list member */
+template ClassMembers(T) if (is(T == class))
 {
     import std.algorithm : canFind;
 
-    static immutable string[] MembersToIgnore = [
-        "toString",     "toHash",   "opCmp",
-        "opEquals",     "Monitor",  "factory"];
+    enum MembersToIgnore = [__traits(allMembers, Object)];
 
-    template ClassMembersImpl(size_t idx)
+    private template ClassMembersImpl(size_t idx)
     {
         static if (idx < [__traits(allMembers, T)].length) {
             enum M = __traits(allMembers, T)[idx];
-            static if (!isCallable!M && ((IgnoreList is null) ? !MembersToIgnore.canFind(M) : !IgnoreList.canFind(M))
-                    && isPublicMember!(T, M))
+            static if (!isCallable!M && !MembersToIgnore.canFind(M) && isPublicMember!(T, M))
                 enum string[] ClassMembersImpl = M ~ ClassMembersImpl!(idx + 1);
             else
                 enum string[] ClassMembersImpl = ClassMembersImpl!(idx + 1); // skip
@@ -240,13 +235,18 @@ template ClassMembers(T, string[] IgnoreList = null) if (is(T == class))
 ///
 unittest
 {
-    static class A {
+    static class Base {
+        int baz;
+    }
+
+    static class A : Base {
         int bar;
         string foo;
         private int priv;
     }
-    static assert(ClassMembers!A == ["bar", "foo"]);
-    static assert(ClassMembers!(A, []) != ["bar", "foo"]);
+
+    static assert(ClassMembers!A == ["bar", "foo", "baz"]);
+    static assert(ClassMembers!(A) != ["bar", "foo"]);
 }
 
 /** Get a list of flatenned class member. */
@@ -254,7 +254,7 @@ template FlattenedClassMembers(T, string[] IgnoreList = null) if (is(T == class)
 {
     import std.string : join;
 
-    template FlattenedClassMembersImpl(U, size_t idx, string prefix)
+    private template FlattenedClassMembersImpl(U, size_t idx, string prefix)
     {
         static if (idx < ClassMembers!U.length) {
             enum M = ClassMembers!U[idx];
@@ -331,14 +331,14 @@ class AutoMapper
     }
 
     /// Create a mapper at compile time.
-    template Mapper(A, B, UserMappings...) if (allSatisfy!(isCustomMemberMapping, UserMappings))
+    private template Mapper(A, B, UserMappings...) if (allSatisfy!(isCustomMemberMapping, UserMappings))
     {
         import std.algorithm : canFind;
         import std.typecons;
         import std.typetuple : TypeTuple;
 
         // get a list of member mapped by user using Mappings...
-        template buildMappedMemberList(Mappings...) {
+        private template buildMappedMemberList(Mappings...) {
             static if (Mappings.length > 1) {
                 enum string[] buildMappedMemberList = Mappings[0].BMember ~ buildMappedMemberList!(Mappings[1..$]);
             }
@@ -348,7 +348,7 @@ class AutoMapper
                 enum string[] buildMappedMemberList = [];
         }
 
-        template MapperImpl(A, B, Mappings...) {
+        private template MapperImpl(A, B, Mappings...) {
             // Compile time created mapper
             alias class MapperImpl : BaseMapper!(A, B) {
                 this(AutoMapper context)
@@ -405,8 +405,12 @@ class AutoMapper
 
         enum string[] userMappedMembers = buildMappedMemberList!(UserMappings);
 
+        private template flattenedMemberToCamelCase(string M) {
+
+        }
+
         // get un-mapper flattened member present in B (recursive template)
-        template getUnMappedMembers() {
+        private template getUnMappedMembers() {
             template getUnMappedMembersImpl(size_t idx) {
                 static if (idx < FlattenedClassMembers!A.length) {
                     enum M = FlattenedClassMembers!A[idx];
@@ -426,7 +430,7 @@ class AutoMapper
         }
 
         // try to auto-map un-mapped member
-        template completeUserMapping(Mappings...) {
+        private template completeUserMapping(Mappings...) {
             enum UM = getUnMappedMembers!();
 
             template completeUserMappingImpl(size_t idx) {
@@ -464,18 +468,18 @@ unittest
     static class B {
         string str;
         int number;
-        //int dataFoo;
+        int dataFoo;
     }
 
     auto am = new AutoMapper();
-
+/*
     am.createMapper!(A, B);
 
     A a = new A();
     B b = am.map!B(a);
     assert(b.str == a.str);
     assert(b.number == a.number);
-    //assert(b.dataFoo == a.data.foo);
+    assert(b.dataFoo == a.data.foo);*/
 }
 
 // flatennig
