@@ -231,7 +231,7 @@ template Alias(alias T)
     alias Alias = T;
 }
 
-template isSame(T, U)
+template isClass(T)
 {
-    alias isSame = Alias!(__traits(isSame, std, std));
+    enum bool isClass = (is(T == class));
 }
