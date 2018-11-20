@@ -405,47 +405,54 @@ class AutoMapper
 
         enum string[] userMappedMembers = buildMappedMemberList!(UserMappings);
 
-        private template flattenedMemberToCamelCase(string M) {
+        // transform a string like "foo.bar" to "fooBar"
+        template flattenedMemberToCamelCase(string M)
+        {
+            import std.string : split, join, capitalize;
 
+            enum Split = M.split(".");
+            private template flattenedMemberToCamelCaseImpl(size_t idx) {
+                static if (idx < Split.length) {
+                    static if (idx is 0)
+                        enum string flattenedMemberToCamelCaseImpl = join([Split[idx], flattenedMemberToCamelCaseImpl!(idx + 1)]); // do not capitalize
+                    else
+                        enum string flattenedMemberToCamelCaseImpl = join([Split[idx].capitalize, flattenedMemberToCamelCaseImpl!(idx + 1)]);
+                }
+                else
+                    enum string flattenedMemberToCamelCaseImpl = "";
+            }
+
+            enum flattenedMemberToCamelCase = flattenedMemberToCamelCaseImpl!0;
         }
 
         // get un-mapper flattened member present in B (recursive template)
-        private template getUnMappedMembers() {
-            template getUnMappedMembersImpl(size_t idx) {
+        private template completeUserMapping(Mappings...) {
+            template completeUserMappingImpl(size_t idx) {
                 static if (idx < FlattenedClassMembers!A.length) {
                     enum M = FlattenedClassMembers!A[idx];
 
-                    // un-mapped by user and B has this member
-                    static if (!userMappedMembers.canFind(M) && hasMember!(B, M))
-                        enum string[] getUnMappedMembersImpl = M ~ getUnMappedMembersImpl!(idx + 1);
+                    // un-mapped by user
+                    static if (!userMappedMembers.canFind(M)) {
+                        // B has this member ?
+                        static if (hasMember!(B, M)) {
+                            alias completeUserMappingImpl = TypeTuple!(ForMember!(M, M), completeUserMappingImpl!(idx+1));
+                        }
+                        // B has this flatenned class member ?
+                        else static if (hasMember!(B, flattenedMemberToCamelCase!M)) {
+                            alias completeUserMappingImpl = TypeTuple!(ForMember!(flattenedMemberToCamelCase!M, M), completeUserMappingImpl!(idx+1));
+                        }
+                        else
+                            alias completeUserMappingImpl = completeUserMappingImpl!(idx+1);
+                    }
                     else
-                        enum string[] getUnMappedMembersImpl = getUnMappedMembersImpl!(idx + 1);
-                }
-                else
-                    enum string[] getUnMappedMembersImpl = [];
-
-            }
-
-            enum string[] getUnMappedMembers = getUnMappedMembersImpl!0;
-        }
-
-        // try to auto-map un-mapped member
-        private template completeUserMapping(Mappings...) {
-            enum UM = getUnMappedMembers!();
-
-            template completeUserMappingImpl(size_t idx) {
-                static if (idx < UM.length) {
-                    enum M = UM[idx];
-
-                    alias completeUserMappingImpl = TypeTuple!(
-                        ForMember!(M, M),
-                        completeUserMappingImpl!(idx+1));
+                        alias completeUserMappingImpl = completeUserMappingImpl!(idx+1);
                 }
                 else
                     alias completeUserMappingImpl = TypeTuple!();
+
             }
 
-            alias completeUserMapping = TypeTuple!(completeUserMappingImpl!0, UserMappings);
+            alias completeUserMapping = TypeTuple!(completeUserMappingImpl!0, Mappings);
         }
 
         alias Mapper = MapperImpl!(A, B, completeUserMapping!(UserMappings));
@@ -455,31 +462,35 @@ class AutoMapper
 // auto
 unittest
 {
-    static class D {
-        int foo = 56;
+    static class Address {
+        long zipcode = 74000;
+        string city = "unknown";
     }
 
-    static class A {
-        string str = "foo";
-        int number = 42;
-        D data = new D();
+    static class User {
+        Address address = new Address();
+        string name = "Eliott";
+        string lastName = "Dumeix";
     }
 
-    static class B {
-        string str;
-        int number;
-        int dataFoo;
+    static class UserDTO {
+        string fullName;
+        string addressCity;
+        long   addressZipcode;
     }
 
     auto am = new AutoMapper();
-/*
-    am.createMapper!(A, B);
 
-    A a = new A();
-    B b = am.map!B(a);
-    assert(b.str == a.str);
-    assert(b.number == a.number);
-    assert(b.dataFoo == a.data.foo);*/
+    am.createMapper!(User, UserDTO,
+        ForMemberFunc!("fullName", (User a) => a.name ~ " " ~ a.lastName ));
+
+    auto user = new User();
+    UserDTO dto = am.map!UserDTO(user);
+
+    assert(dto.fullName == user.name ~ " " ~ user.lastName);
+    assert(dto.addressCity == user.address.city);
+    assert(dto.addressZipcode == user.address.zipcode);
+
 }
 
 // flatennig
