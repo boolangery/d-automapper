@@ -249,37 +249,40 @@ class AutoMapper
 {
     import std.conv : castFrom, to;
 
-    alias MapperByType = IMapper[TypeInfo];
-
-    MapperByType[TypeInfo] _mappers;
+    IMapper[string] _mappers;
 
     auto createMapper(A, B, Mappings...)()
     {
         auto mapper = new Mapper!(A, B, Mappings)(this);
-        _mappers[typeid(A)][typeid(B)] = mapper;
+        _mappers[getMappingName!(A, B)] = mapper;
         return mapper;
+    }
+
+    private template getMappingName(A, B)
+    {
+        enum string getMappingName = fullyQualifiedName!A ~ "_" ~ fullyQualifiedName!B;
     }
 
     /// Class mapper.
     B map(B, A)(A a) if (isClass!A && isClass!B)
     {
-        if (typeid(A) !in _mappers || typeid(B) !in _mappers[typeid(A)]) {
+        IMapper* mapper = (getMappingName!(A, B) in _mappers);
+
+        if (mapper is null)
             throw new Exception("no mapper found for mapping from " ~ A.stringof ~ " to " ~ B.stringof ~ ". " ~
                 "Please setup a mapper using am.createMapper!(" ~ A.stringof ~ ", " ~ B.stringof ~ ", ...);");
-        }
 
-        auto m = castFrom!IMapper.to!(BaseMapper!(A, B))(_mappers[typeid(A)][typeid(B)]);
-        return m.map(a);
+        return castFrom!IMapper.to!(BaseMapper!(A, B))(*mapper).map(a);
     }
 
     /// Builtin mapper.
     B map(B, A)(A a) if (!isClass!A && !isClass!B)
     {
-        if (typeid(A) !in _mappers || typeid(B) !in _mappers[typeid(A)]) {
-            _mappers[typeid(A)][typeid(B)] = new BuiltinMapper!(A, B)(this);
+        if (getMappingName!(A, B) !in _mappers) {
+            _mappers[getMappingName!(A, B)] = new BuiltinMapper!(A, B)(this);
         }
 
-        auto m = castFrom!IMapper.to!(BaseMapper!(A, B))(_mappers[typeid(A)][typeid(B)]);
+        auto m = castFrom!IMapper.to!(BaseMapper!(A, B))(_mappers[getMappingName!(A, B)]);
         return m.map(a);
     }
 
