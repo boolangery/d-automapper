@@ -14,7 +14,6 @@ class CustomMemberMapping(string BM)
     import std.string : split;
 
     enum string BMember = BM;
-    enum string[] BMemberSplit = BM.split(".");
 }
 
 /// Compile time
@@ -23,28 +22,38 @@ template isCustomMemberMapping(T)
     enum bool isCustomMemberMapping = (is(T: CustomMemberMapping!BM, string BM));
 }
 
+/// Define ForMember type based an template arguements.
+enum ForMemberType
+{
+    mapMember,  // map a member to another member
+    mapDelegate // map a member to a delegate
+}
+
 /// Map a member from A to B.
-class ForMember(string BM, string AM) : CustomMemberMapping!(BM)
+class ForMember(string BM, alias AC) : CustomMemberMapping!(BM)
 {
-    import std.string : split;
+    private alias AT = typeof(AC);
 
-    enum string AMember = AM;
-    enum string[] AMemberSplit = AM.split(".");
+    static assert(is(AT == string) || isCallable!AT, ForMember.stringof ~
+        " Action must be a string to map a member to another member or a delegate.");
+
+    static if (is(AT == string))
+        enum ForMemberType Type = ForMemberType.mapMember;
+    else
+        enum ForMemberType Type = ForMemberType.mapDelegate;
+
+    alias Action = AC;
 }
 
-template isForMember(T)
+template isForMember(T, ForMemberType Type)
 {
-    enum bool isForMember = (is(T == ForMember!(BMember, AMember), string BMember, string AMember));
-}
-
-class ForMemberFunc(string BM, alias F) : CustomMemberMapping!(BM)
-{
-    alias Func = F;
-}
-
-template isForMemberFunc(T)
-{
-    enum bool isForMemberFunc = (is(T == ForMemberFunc!(BMember, Func), string BMember, alias Func));
+    static if (is(T == ForMember!(BMember, Action), string BMember, alias Action))
+        static if (T.Type == Type)
+            enum bool isForMember = true;
+        else
+            enum bool isForMember = false;
+    else
+        enum bool isForMember = false;
 }
 
 class IgnoreMember(string BM) : CustomMemberMapping!(BM)
@@ -146,31 +155,31 @@ class AutoMapper
                     static foreach(Mapping; Mappings) {
                         static assert(hasMember!(B, Mapping.BMember), Mapping.BMember ~ " is not a member of " ~ B.stringof);
 
-                        // ForMember (works with nested member)
-                        static if (isForMember!Mapping) {
-                            static assert(hasNestedMember!(A, Mapping.AMember), Mapping.AMember ~ " is not a member of " ~ A.stringof);
+                        // ForMember - mapMember
+                        static if (isForMember!(Mapping, ForMemberType.mapMember)) {
+                            static assert(hasNestedMember!(A, Mapping.Action), Mapping.Action ~ " is not a member of " ~ A.stringof);
 
-                            static if (is(MemberType!(B, Mapping.BMember) == MemberType!(A, Mapping.AMember))) {
-                                __traits(getMember, b, Mapping.BMember) = mixin(GetMember!(a, Mapping.AMember));
+                            static if (is(MemberType!(B, Mapping.BMember) == MemberType!(A, Mapping.Action))) {
+                                __traits(getMember, b, Mapping.BMember) = mixin(GetMember!(a, Mapping.Action));
                             }
                             else {
                                 __traits(getMember, b, Mapping.BMember) = context.map!(
                                     MemberType!(B, Mapping.BMember),
-                                    MemberType!(A, Mapping.AMember))(__traits(getMember, a, Mapping.AMember));
+                                    MemberType!(A, Mapping.Action))(__traits(getMember, a, Mapping.Action));
                             }
                         }
-                        // ForMemberFunc
-                        else static if (isForMemberFunc!Mapping) {
+                        // ForMember - mapDelegate
+                        else static if (isForMember!(Mapping, ForMemberType.mapDelegate)) {
                             // static assert return type
-                            static assert(is(ReturnType!(Mapping.Func) == MemberType!(B, Mapping.BMember)),
-                                "the func in " ~ isForMemberFunc.stringof ~ " must return a '" ~
+                            static assert(is(ReturnType!(Mapping.Action) == MemberType!(B, Mapping.BMember)),
+                                "the func in " ~ ForMember.stringof ~ " must return a '" ~
                                 MemberType!(B, Mapping.BMember).stringof ~ "' like " ~ B.stringof ~
                                 "." ~ Mapping.BMember);
                             // static assert parameters
-                            static assert(isSame!(Parameters!(Mapping.Func), A),
-                                "the func in " ~ isForMemberFunc.stringof ~ " must take a value of type '" ~ A.stringof ~"'");
+                            static assert(isSame!(Parameters!(Mapping.Action), A),
+                                "the func in " ~ ForMember.stringof ~ " must take a value of type '" ~ A.stringof ~"'");
 
-                            __traits(getMember, b, Mapping.BMember) = Mapping.Func(a);
+                            __traits(getMember, b, Mapping.BMember) = Mapping.Action(a);
                         }
                     }
 
@@ -265,7 +274,7 @@ unittest
     auto am = new AutoMapper();
 
     am.createMapper!(User, UserDTO,
-        ForMemberFunc!("fullName", (User a) => a.name ~ " " ~ a.lastName ));
+        ForMember!("fullName", (User a) => a.name ~ " " ~ a.lastName ));
 
     auto user = new User();
     UserDTO dto = am.map!UserDTO(user);
@@ -353,7 +362,7 @@ unittest
         ForMember!("str", "str"),
         ForMember!("foo", "foo"),
         IgnoreMember!"bar",
-        ForMemberFunc!("mod", (A a) {
+        ForMember!("mod", (A a) {
             return "modified";
         })
     );
