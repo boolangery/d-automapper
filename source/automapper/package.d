@@ -3,7 +3,6 @@
 */
 module automapper;
 
-public import std.variant;
 import automapper.meta;
 
 /// Base class for creating a custom member mapping.
@@ -60,9 +59,10 @@ class IgnoreMember(string BM) : CustomMemberMapping!(BM)
 {
 }
 
+/// A base interface to store templated mapper in a list.
 interface IMapper
 {
-    Variant map(Variant value);
+
 }
 
 abstract class BaseMapper(A, B) : IMapper
@@ -76,16 +76,8 @@ public:
         context = ctx;
     }
 
-    final override Variant map(Variant value)
-    {
-        Variant bvar = map(*(value.peek!(A)));
-        return bvar;
-    }
-
     abstract B map(A a);
 }
-
-
 
 /** Automappler help you create mapper.
 Mapper are generated at compile-time.
@@ -106,20 +98,14 @@ class AutoMapper
 
     B map(B, A)(A a)
     {
-        IMapper mapper = null;
+        import std.conv : castFrom, to;
 
-        if (typeid(A) in _mappers) {
-            if (typeid(B) in _mappers[typeid(A)]) {
-                mapper = _mappers[typeid(A)][typeid(B)];
-            }
-        }
-
-        if (mapper is null)
+        if (typeid(A) !in _mappers || typeid(B) !in _mappers[typeid(A)])
             throw new Exception("no mapper found for mapping from " ~ A.stringof ~ " to " ~ B.stringof ~ ". " ~
                 "Please setup a mapper using am.createMapper!(" ~ A.stringof ~ ", " ~ B.stringof ~ ", ...);");
 
-        Variant avar = a;
-        return *(mapper.map(avar).peek!B);
+        auto m = castFrom!IMapper.to!(BaseMapper!(A, B))(_mappers[typeid(A)][typeid(B)]);
+        return m.map(a);
     }
 
     /// Create a mapper at compile time.
