@@ -5,13 +5,27 @@ module automapper;
 
 import automapper.meta;
 
+class CustomMapping
+{
+
+}
+
+/// Compile time
+template isCustomMapping(T)
+{
+    enum bool isCustomMapping = (is(T: CustomMapping));
+}
+
+class Reverse : CustomMapping
+{
+
+}
+
 /// Base class for creating a custom member mapping.
 /// Template Params:
 ///     BM = The member to map in the destination object
-class CustomMemberMapping(string BM)
+class CustomMemberMapping(string BM) : CustomMapping
 {
-    import std.string : split;
-
     enum string BMember = BM;
 }
 
@@ -73,23 +87,44 @@ public:
     abstract B map(A a);
 }
 
-
 // get a list of member mapped by user using Mappings...
-private template buildMappedMemberList(Mappings...) if (allSatisfy!(isCustomMemberMapping, Mappings))
+private template buildMappedMemberList(Mappings...) if (allSatisfy!(isCustomMapping, Mappings))
 {
-    static if (Mappings.length > 1) {
-        enum string[] buildMappedMemberList = Mappings[0].BMember ~ buildMappedMemberList!(Mappings[1..$]);
+    private template buildMappedMemberListImpl(size_t idx) {
+        static if (idx < Mappings.length)
+            static if (isCustomMemberMapping!(Mappings[idx]))
+                enum string[] buildMappedMemberListImpl = Mappings[idx].BMember ~ buildMappedMemberListImpl!(idx + 1);
+            else
+                enum string[] buildMappedMemberListImpl = buildMappedMemberListImpl!(idx + 1); // skip
+        else
+            enum string[] buildMappedMemberListImpl = [];
     }
-    else static if (Mappings.length == 1)
-        enum string[] buildMappedMemberList = Mappings[0].BMember ~ buildMappedMemberList!();
-    else
-        enum string[] buildMappedMemberList = [];
+
+    enum string[] buildMappedMemberList = buildMappedMemberListImpl!0;
 }
 
+// Returns true if the mapper needs to be reversed (Mappings containts Reverse).
+private template reverseNeeded(Mapper) if (isMapperDefinition!Mapper)
+{
+    private template reverseNeededImpl(size_t idx) {
+        static if (idx < Mapper.Mappings.length) {
+            static if (is(Mapper.Mappings[idx] : Reverse))
+                enum bool reverseNeededImpl = true;
+            else
+                enum bool reverseNeededImpl = reverseNeededImpl!(idx + 1);
+        }
+        else
+            enum bool reverseNeededImpl = false;
+    }
+
+    enum bool reverseNeeded = reverseNeededImpl!0;
+}
 
 /// A mapper definition.
-class Mapper(A, B, M...) if (allSatisfy!(isCustomMemberMapping, M))
+class Mapper(F, T, M...) if (allSatisfy!(isCustomMapping, M))
 {
+    alias A = F;
+    alias B = T;
     alias Mappings = AliasSeq!M;
 }
 
@@ -103,7 +138,7 @@ template isMapperDefinition(T)
 ///     * map member with the same name
 ///     * map flattened member to destination object
 ///       e.g: A.foo.bar is mapped to B.fooBar
-private template completeUserMapping(A, B, Mappings...) if (allSatisfy!(isCustomMemberMapping, Mappings))
+private template completeUserMapping(A, B, Mappings...) if (allSatisfy!(isCustomMapping, Mappings))
 {
     import std.algorithm : canFind;
 
@@ -137,6 +172,44 @@ private template completeUserMapping(A, B, Mappings...) if (allSatisfy!(isCustom
     alias completeUserMapping = AliasSeq!(completeUserMappingImpl!0, Mappings);
 }
 
+/// It returns a list of reversed mapper.
+/// e.g. for Mapper!(A, B, ForMember("foo", "bar")), it create Mapper!(B, A, ForMember("bar", "foo")
+private template generateReversedMapper(Mappers...) if (allSatisfy!(isMapperDefinition, Mappers))
+{
+    private template generateReversedMapperImpl(size_t idx) {
+        static if (idx < Mappers.length) {
+            alias M = Mappers[idx];
+
+            private template reverseMapping(size_t midx) {
+                static if (midx < M.Mappings.length) {
+                    alias MP = M.Mappings[midx];
+
+                    static if (isForMember!(MP, ForMemberType.mapMember)) {
+                        alias reverseMapping = AliasSeq!(ForMember!(MP.Action, MP.BMember), reverseMapping!(midx + 1));
+                    }
+                    else static if (isForMember!(MP, ForMemberType.mapDelegate)) {
+                        static assert(false, "Cannot reverse mapping '" ~ M.A.stringof ~ " -> " ~ M.B.stringof ~
+                            "' because it use a custom user delegate: " ~ MP.stringof);
+                    }
+                    else
+                        alias reverseMapping = AliasSeq!();
+                }
+                else
+                    alias reverseMapping = AliasSeq!();
+            }
+
+            static if (reverseNeeded!M) // reverse it if needed
+                alias generateReversedMapperImpl = AliasSeq!(Mapper!(M.B, M.A, reverseMapping!0), generateReversedMapperImpl!(idx + 1));
+            else
+                alias generateReversedMapperImpl = generateReversedMapperImpl!(idx + 1); // continue
+        }
+        else
+            alias generateReversedMapperImpl = AliasSeq!();
+    }
+
+    alias generateReversedMapper = generateReversedMapperImpl!0;
+}
+
 /** Compile time class mapping. */
 class AutoMapper(Mappers...)
 {
@@ -144,12 +217,14 @@ class AutoMapper(Mappers...)
 
     static assert(allSatisfy!(isMapperDefinition, Mappers), "Invalid template arguements.");
 
+    alias FullMappers = AliasSeq!(Mappers, generateReversedMapper!Mappers);
+
     /// Find the right mapper in the Mappers variadic template.
     private template getMapperDefinition(A, B)
     {
         private template getMapperDefinitionImpl(size_t idx) {
-            static if (idx < Mappers.length) {
-                alias M = Mappers[idx];
+            static if (idx < FullMappers.length) {
+                alias M = FullMappers[idx];
                 static if (is(M : Mapper!(A, B)))
                     alias getMapperDefinitionImpl = M; // found
                 else static if (is(M : Mapper!(A, B, T), T))
@@ -184,34 +259,36 @@ class AutoMapper(Mappers...)
 
             // generate mapping code
             static foreach(Mapping; AutoMapping) {
-                static assert(hasMember!(B, Mapping.BMember), Mapping.BMember ~ " is not a member of " ~ B.stringof);
+                static if (isCustomMemberMapping!Mapping) {
+                    static assert(hasMember!(B, Mapping.BMember), Mapping.BMember ~ " is not a member of " ~ B.stringof);
 
-                // ForMember - mapMember
-                static if (isForMember!(Mapping, ForMemberType.mapMember)) {
-                    static assert(hasNestedMember!(A, Mapping.Action), Mapping.Action ~ " is not a member of " ~ A.stringof);
+                    // ForMember - mapMember
+                    static if (isForMember!(Mapping, ForMemberType.mapMember)) {
+                        static assert(hasNestedMember!(A, Mapping.Action), Mapping.Action ~ " is not a member of " ~ A.stringof);
 
-                    // same type
-                    static if (is(MemberType!(B, Mapping.BMember) == MemberType!(A, Mapping.Action))) {
-                        __traits(getMember, b, Mapping.BMember) = mixin(GetMember!(a, Mapping.Action)); // b.member = a. member;
+                        // same type
+                        static if (is(MemberType!(B, Mapping.BMember) == MemberType!(A, Mapping.Action))) {
+                            __traits(getMember, b, Mapping.BMember) = mixin(GetMember!(a, Mapping.Action)); // b.member = a. member;
+                        }
+                        // different type: map
+                        else {
+                            __traits(getMember, b, Mapping.BMember) = this.map!(
+                                MemberType!(B, Mapping.BMember),
+                                MemberType!(A, Mapping.Action))(__traits(getMember, a, Mapping.Action)); // b.member = context.map(a.member);
+                        }
                     }
-                    // different type: map
-                    else {
-                        __traits(getMember, b, Mapping.BMember) = this.map!(
-                            MemberType!(B, Mapping.BMember),
-                            MemberType!(A, Mapping.Action))(__traits(getMember, a, Mapping.Action)); // b.member = context.map(a.member);
+                    // ForMember - mapDelegate
+                    else static if (isForMember!(Mapping, ForMemberType.mapDelegate)) {
+                        // static assert return type
+                        static assert(is(ReturnType!(Mapping.Action) == MemberType!(B, Mapping.BMember)),
+                            "the func in " ~ ForMember.stringof ~ " must return a '" ~
+                            MemberType!(B, Mapping.BMember).stringof ~ "' like " ~ B.stringof ~
+                            "." ~ Mapping.BMember);
+                        // static assert parameters
+                        static assert(Parameters!(Mapping.Action).length is 1 && is(Parameters!(Mapping.Action)[0] == A),
+                            "the func in " ~ ForMember.stringof ~ " must take a value of type '" ~ A.stringof ~"'");
+                        __traits(getMember, b, Mapping.BMember) = Mapping.Action(a);
                     }
-                }
-                // ForMember - mapDelegate
-                else static if (isForMember!(Mapping, ForMemberType.mapDelegate)) {
-                    // static assert return type
-                    static assert(is(ReturnType!(Mapping.Action) == MemberType!(B, Mapping.BMember)),
-                        "the func in " ~ ForMember.stringof ~ " must return a '" ~
-                        MemberType!(B, Mapping.BMember).stringof ~ "' like " ~ B.stringof ~
-                        "." ~ Mapping.BMember);
-                    // static assert parameters
-                    static assert(Parameters!(Mapping.Action).length is 1 && is(Parameters!(Mapping.Action)[0] == A),
-                        "the func in " ~ ForMember.stringof ~ " must take a value of type '" ~ A.stringof ~"'");
-                    __traits(getMember, b, Mapping.BMember) = Mapping.Action(a);
                 }
             }
         }
@@ -351,13 +428,17 @@ unittest
 
     auto am = new AutoMapper!(
         Mapper!(Address, AddressDTO,
-            ForMember!("zipcode", "zipcode")),
+            ForMember!("zipcode", "zipcode"),
+            Reverse),
         Mapper!(A, B,
             ForMember!("address", "address")));
 
     A a = new A();
     B b = am.map!B(a);
     assert(b.address.zipcode == a.address.zipcode);
+
+    // test reversed mapper
+    am.map!Address(new AddressDTO());
 }
 
 unittest
