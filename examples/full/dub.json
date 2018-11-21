@@ -1,0 +1,12 @@
+{
+	"name": "benchmark",
+	"authors": [
+		"Eliott Dumeix"
+	],
+	"description": "automapper benchmark",
+	"copyright": "Copyright © 2018, Eliott Dumeix",
+	"license": "MIT",
+	"dependencies": {
+		"automapper": {"path" : "../../"}
+	}
+}

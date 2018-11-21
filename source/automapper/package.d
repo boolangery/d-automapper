@@ -90,10 +90,12 @@ public:
 // get a list of member mapped by user using Mappings...
 private template buildMappedMemberList(Mappings...) if (allSatisfy!(isCustomMapping, Mappings))
 {
+    import std.string : split;
+
     private template buildMappedMemberListImpl(size_t idx) {
         static if (idx < Mappings.length)
             static if (isCustomMemberMapping!(Mappings[idx]))
-                enum string[] buildMappedMemberListImpl = Mappings[idx].BMember ~ buildMappedMemberListImpl!(idx + 1);
+                enum string[] buildMappedMemberListImpl = Mappings[idx].BMember ~ Mappings[idx].BMember.split(".") ~ buildMappedMemberListImpl!(idx + 1);
             else
                 enum string[] buildMappedMemberListImpl = buildMappedMemberListImpl!(idx + 1); // skip
         else
@@ -141,23 +143,31 @@ template isMapperDefinition(T)
 private template completeUserMapping(A, B, Mappings...) if (allSatisfy!(isCustomMapping, Mappings))
 {
     import std.algorithm : canFind;
+    import std.string : join;
 
     enum MappedMembers = buildMappedMemberList!(Mappings);
 
-    template completeUserMappingImpl(size_t idx) {
+    private template completeUserMappingImpl(size_t idx) {
         static if (idx < FlattenedClassMembers!A.length) {
             enum M = FlattenedClassMembers!A[idx];
 
             // un-mapped by user
             static if (!MappedMembers.canFind(M)) {
-                // B has this member ?
+                // B has this member: B.foo = A.foo
                 static if (hasMember!(B, M)) {
-                    alias completeUserMappingImpl = AliasSeq!(ForMember!(M, M), completeUserMappingImpl!(idx+1));
+                    alias completeUserMappingImpl = AliasSeq!(ForMember!(M, M),
+                        completeUserMappingImpl!(idx+1));
                 }
-                // B has this flatenned class member ?
+                // B has this flatenned class member: B.fooBar = A.foo.bar
                 else static if (hasMember!(B, flattenedMemberToCamelCase!M)) {
-                    alias completeUserMappingImpl = AliasSeq!(ForMember!(flattenedMemberToCamelCase!M, M), completeUserMappingImpl!(idx+1));
+                    alias completeUserMappingImpl = AliasSeq!(ForMember!(flattenedMemberToCamelCase!M, M),
+                        completeUserMappingImpl!(idx+1));
                 }
+                // B has this nested member: B.foo.bar = A.fooBar
+                /*else static if (hasNestedMember!(B, M.splitCamelCase.join("."))) {
+                    alias completeUserMappingImpl = AliasSeq!(ForMember!(M.splitCamelCase.join("."), M),
+                        completeUserMappingImpl!(idx+1));
+                }*/
                 else
                     alias completeUserMappingImpl = completeUserMappingImpl!(idx+1);
             }
@@ -166,8 +176,28 @@ private template completeUserMapping(A, B, Mappings...) if (allSatisfy!(isCustom
         }
         else
             alias completeUserMappingImpl = AliasSeq!();
-
     }
+/*
+    private template instanciateClassMemberInDest() {
+        enum FMB = FlattenedClassMembers!B;
+        enum FMA = FlattenedClassMembers!A;
+        private template instanciateClassMemberInDestImpl(size_t idx) {
+            static if (idx < FMB.length) {
+                static if (isClass!(MemberType!(B, FMB[idx]))) {
+                    static if (FMA.canFind(FMB[idx])) {
+                        pragma(msg, FMB[idx]);
+                    }
+                   // alias instanciateClassMemberInDestImpl = AliasSeq!(ForMember!(FMB[idx], (A a) { return new MemberType!(B, FMB[idx]); }),
+                   //     instanciateClassMemberInDestImpl!(idx + 1));
+                }
+                //else
+                    alias instanciateClassMemberInDestImpl = instanciateClassMemberInDestImpl!(idx + 1);
+            }
+            else
+                alias instanciateClassMemberInDestImpl = AliasSeq!();
+        }
+        alias instanciateClassMemberInDest = instanciateClassMemberInDestImpl!0;
+    }*/
 
     alias completeUserMapping = AliasSeq!(completeUserMappingImpl!0, Mappings);
 }
@@ -192,14 +222,15 @@ private template generateReversedMapper(Mappers...) if (allSatisfy!(isMapperDefi
                             "' because it use a custom user delegate: " ~ MP.stringof);
                     }
                     else
-                        alias reverseMapping = AliasSeq!();
+                        alias reverseMapping = reverseMapping!(midx + 1); // continue
                 }
                 else
                     alias reverseMapping = AliasSeq!();
             }
 
             static if (reverseNeeded!M) // reverse it if needed
-                alias generateReversedMapperImpl = AliasSeq!(Mapper!(M.B, M.A, reverseMapping!0), generateReversedMapperImpl!(idx + 1));
+                alias generateReversedMapperImpl = AliasSeq!(Mapper!(M.B, M.A, completeUserMapping!(M.B, M.A, reverseMapping!0)),
+                    generateReversedMapperImpl!(idx + 1));
             else
                 alias generateReversedMapperImpl = generateReversedMapperImpl!(idx + 1); // continue
         }
@@ -217,7 +248,27 @@ class AutoMapper(Mappers...)
 
     static assert(allSatisfy!(isMapperDefinition, Mappers), "Invalid template arguements.");
 
-    alias FullMappers = AliasSeq!(Mappers, generateReversedMapper!Mappers);
+    /// Complete user Mappers with automatic mapping
+    private template completeMappers(Mappers...)
+    {
+        private template completeMappersImpl(size_t idx) {
+            static if (idx < Mappers.length) {
+                alias M = Mappers[idx];
+                alias completeMappersImpl = AliasSeq!(Mapper!(M.A, M.B, completeUserMapping!(M.A, M.B, M.Mappings)),
+                    completeMappersImpl!(idx + 1));
+            }
+            else
+                alias completeMappersImpl = AliasSeq!();
+        }
+
+        alias completeMappers = completeMappersImpl!0;
+    }
+
+    alias CompletedMappers = completeMappers!(Mappers); // complete user mapping
+    // Generate reversed mapper and complete them too
+    alias FullMappers = AliasSeq!(CompletedMappers, completeMappers!(generateReversedMapper!CompletedMappers));
+
+    // debug pragma(msg, "FullMappers: " ~ FullMappers.stringof);
 
     /// Find the right mapper in the Mappers variadic template.
     private template getMapperDefinition(A, B)
@@ -250,17 +301,26 @@ class AutoMapper(Mappers...)
             static assert(false, "No mapper found for mapping from " ~ A.stringof ~ " to " ~ B.stringof);
         else {
             // auto complete mappping
-            alias AutoMapping = completeUserMapping!(A, B, M.Mappings);
+            alias AutoMapping = M.Mappings;//completeUserMapping!(A, B, M.Mappings);
 
             // warn about un-mapped members in B
-            static foreach(member; ClassMembers!B)
-                static if (!buildMappedMemberList!(AutoMapping).canFind(member))
+            static foreach(member; ClassMembers!B) {
+                static if (!buildMappedMemberList!(AutoMapping).canFind(member)) {
                     static assert(false, "non mapped member in destination object '" ~ B.stringof ~"." ~ member ~ "'");
+                }
+            }
+
+            // instanciate class member
+            static foreach(member; ClassMembers!B) {
+                static if (isClass!(MemberType!(B, member))) {
+                    __traits(getMember, b, member) = new MemberType!(B, member);
+                }
+            }
 
             // generate mapping code
             static foreach(Mapping; AutoMapping) {
                 static if (isCustomMemberMapping!Mapping) {
-                    static assert(hasMember!(B, Mapping.BMember), Mapping.BMember ~ " is not a member of " ~ B.stringof);
+                    static assert(hasNestedMember!(B, Mapping.BMember), Mapping.BMember ~ " is not a member of " ~ B.stringof);
 
                     // ForMember - mapMember
                     static if (isForMember!(Mapping, ForMemberType.mapMember)) {
@@ -268,7 +328,7 @@ class AutoMapper(Mappers...)
 
                         // same type
                         static if (is(MemberType!(B, Mapping.BMember) == MemberType!(A, Mapping.Action))) {
-                            __traits(getMember, b, Mapping.BMember) = mixin(GetMember!(a, Mapping.Action)); // b.member = a. member;
+                            mixin(GetMember!(b, Mapping.BMember)) = mixin(GetMember!(a, Mapping.Action)); // b.member = a. member;
                         }
                         // different type: map
                         else {
@@ -310,6 +370,30 @@ class AutoMapper(Mappers...)
 
         return ret;
     }
+}
+
+// reverse flattening
+unittest
+{
+    static class Address {
+        int zipcode;
+    }
+
+    static class A {
+        Address address;
+    }
+
+    static class B {
+        int addressZipcode = 74000;
+    }
+
+    pragma(msg, "-------------------------------------------------");
+    auto am = new AutoMapper!(
+        Mapper!(A, B, Reverse));
+
+    B b = new B();
+    A a = am.map!A(b);
+    assert(b.addressZipcode == a.address.zipcode);
 }
 
 // array
@@ -383,7 +467,7 @@ unittest
 
 }
 
-// flatennig
+// flattening
 unittest
 {
     static class Address {
@@ -431,7 +515,8 @@ unittest
             ForMember!("zipcode", "zipcode"),
             Reverse),
         Mapper!(A, B,
-            ForMember!("address", "address")));
+            ForMember!("address", "address"),
+            Reverse));
 
     A a = new A();
     B b = am.map!B(a);

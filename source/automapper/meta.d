@@ -185,17 +185,20 @@ template FlattenedClassMembers(T, string[] IgnoreList = null) if (is(T == class)
 {
     import std.string : join;
 
-    private template FlattenedClassMembersImpl(U, size_t idx, string prefix)
+    private template FlattenedClassMembersImpl(U, size_t idx, string Prefix)
     {
         static if (idx < ClassMembers!U.length) {
             enum M = ClassMembers!U[idx];
-            enum P = (prefix == "" ? "" : prefix ~ "."); // prefix
+            enum P = (Prefix == "" ? "" : Prefix ~ "."); // prefix
 
             // it's a class: recurse
             static if (is(MemberType!(U, M) == class))
-                enum string[] FlattenedClassMembersImpl = FlattenedClassMembersImpl!(MemberType!(U, M), 0, P ~ M) ~ FlattenedClassMembersImpl!(U, idx + 1, prefix);
+                //static if (Prefix == "")
+                    enum string[] FlattenedClassMembersImpl = (P ~ M) ~ FlattenedClassMembersImpl!(MemberType!(U, M), 0, P ~ M) ~ FlattenedClassMembersImpl!(U, idx + 1, Prefix);
+                //else
+                //    enum string[] FlattenedClassMembersImpl = Prefix ~ FlattenedClassMembersImpl!(MemberType!(U, M), 0, P ~ M) ~ FlattenedClassMembersImpl!(U, idx + 1, Prefix);
             else
-                enum string[] FlattenedClassMembersImpl = P ~ M ~ FlattenedClassMembersImpl!(U, idx + 1, prefix);
+                enum string[] FlattenedClassMembersImpl = P ~ M ~ FlattenedClassMembersImpl!(U, idx + 1, Prefix);
         }
         else {
             enum string[] FlattenedClassMembersImpl = [];
@@ -224,7 +227,16 @@ unittest
         int top;
     }
 
-    static assert(FlattenedClassMembers!C == ["baz.foo.bar", "baz.foo.str", "baz.mid", "top"]);
+    static class Address {
+        int zipcode;
+    }
+
+    static class D {
+        Address address;
+    }
+
+    static assert(FlattenedClassMembers!C == ["baz", "baz.foo", "baz.foo.bar", "baz.foo.str", "baz.mid", "top"]);
+    static assert(FlattenedClassMembers!D == ["address", "address.zipcode"]);
 }
 
 template Alias(alias T)
@@ -257,4 +269,34 @@ template flattenedMemberToCamelCase(string M)
 
     enum flattenedMemberToCamelCase = flattenedMemberToCamelCaseImpl!0;
 
+}
+
+string[] splitCamelCase(string str)
+{
+    import std.ascii : isUpper;
+    import std.uni : toLower;
+
+    string[] res;
+    string tmp;
+    int k = 0;
+    foreach(c; str) {
+        if (c.isUpper) {
+            res ~= tmp;
+            tmp = "";
+        }
+        tmp ~= c.toLower;
+        k++;
+    }
+
+    foreach(c; str[k..$])
+        tmp ~= c.toLower;
+    res ~= tmp;
+
+    return res;
+}
+
+/// unittest
+unittest
+{
+    static assert("fooBarBaz".splitCamelCase() == ["foo", "bar", "baz"]);
 }
