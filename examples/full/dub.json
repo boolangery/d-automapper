@@ -1,9 +1,9 @@
 {
-	"name": "benchmark",
+	"name": "example",
 	"authors": [
 		"Eliott Dumeix"
 	],
-	"description": "automapper benchmark",
+	"description": "automapper example 1",
 	"copyright": "Copyright © 2018, Eliott Dumeix",
 	"license": "MIT",
 	"dependencies": {
