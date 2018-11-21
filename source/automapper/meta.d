@@ -7,6 +7,7 @@ module automapper.meta;
 package:
 
 import std.traits;
+public import std.meta;
 
 /** Get an alias on the member type (work with nested member like "foo.bar").
 Params:
@@ -234,4 +235,26 @@ template Alias(alias T)
 template isClass(T)
 {
     enum bool isClass = (is(T == class));
+}
+
+
+// transform a string like "foo.bar" to "fooBar"
+template flattenedMemberToCamelCase(string M)
+{
+    import std.string : split, join, capitalize;
+
+    enum Split = M.split(".");
+    private template flattenedMemberToCamelCaseImpl(size_t idx) {
+        static if (idx < Split.length) {
+            static if (idx is 0)
+                enum string flattenedMemberToCamelCaseImpl = join([Split[idx], flattenedMemberToCamelCaseImpl!(idx + 1)]); // do not capitalize
+            else
+                enum string flattenedMemberToCamelCaseImpl = join([Split[idx].capitalize, flattenedMemberToCamelCaseImpl!(idx + 1)]);
+        }
+        else
+            enum string flattenedMemberToCamelCaseImpl = "";
+    }
+
+    enum flattenedMemberToCamelCase = flattenedMemberToCamelCaseImpl!0;
+
 }

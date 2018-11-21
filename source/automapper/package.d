@@ -4,7 +4,6 @@
 module automapper;
 
 import automapper.meta;
-import std.meta : allSatisfy;
 
 /// Base class for creating a custom member mapping.
 /// Template Params:
@@ -60,19 +59,13 @@ class IgnoreMember(string BM) : CustomMemberMapping!(BM)
 {
 }
 
-/// A base interface to store templated mapper in a list.
-interface IMapper
-{
-
-}
-
-abstract class BaseMapper(A, B) : IMapper
+abstract class BaseMapper(A, B, AM)
 {
 protected:
-    AutoMapper context;
+    AM context;
 
 public:
-    this(AutoMapper ctx)
+    this(AM ctx)
     {
         context = ctx;
     }
@@ -81,211 +74,165 @@ public:
 }
 
 
-/// Create a class mapper optimized at compile time.
-private template Mapper(A, B, UserMappings...)
-    if (allSatisfy!(isCustomMemberMapping, UserMappings) &&
-        is(A == class) && is(B == class))
+// get a list of member mapped by user using Mappings...
+private template buildMappedMemberList(Mappings...) if (allSatisfy!(isCustomMemberMapping, Mappings))
+{
+    static if (Mappings.length > 1) {
+        enum string[] buildMappedMemberList = Mappings[0].BMember ~ buildMappedMemberList!(Mappings[1..$]);
+    }
+    else static if (Mappings.length == 1)
+        enum string[] buildMappedMemberList = Mappings[0].BMember ~ buildMappedMemberList!();
+    else
+        enum string[] buildMappedMemberList = [];
+}
+
+
+/// A mapper definition.
+class Mapper(A, B, M...) if (allSatisfy!(isCustomMemberMapping, M))
+{
+    alias Mappings = AliasSeq!M;
+}
+
+/// Is the provided template a Mapper ?
+template isMapperDefinition(T)
+{
+    enum bool isMapperDefinition = (is(T: Mapper!(A, B), A, B) || is(T: Mapper!(AB, BB, MB), AB, BB, MB));
+}
+
+/// Complete user mappings.
+///     * map member with the same name
+///     * map flattened member to destination object
+///       e.g: A.foo.bar is mapped to B.fooBar
+private template completeUserMapping(A, B, Mappings...) if (allSatisfy!(isCustomMemberMapping, Mappings))
 {
     import std.algorithm : canFind;
-    import std.typecons;
-    import std.typetuple : TypeTuple;
 
-    // get a list of member mapped by user using Mappings...
-    private template buildMappedMemberList(Mappings...) {
-        static if (Mappings.length > 1) {
-            enum string[] buildMappedMemberList = Mappings[0].BMember ~ buildMappedMemberList!(Mappings[1..$]);
-        }
-        else static if (Mappings.length == 1)
-            enum string[] buildMappedMemberList = Mappings[0].BMember ~ buildMappedMemberList!();
-        else
-            enum string[] buildMappedMemberList = [];
-    }
+    enum MappedMembers = buildMappedMemberList!(Mappings);
 
-    private template MapperImpl(A, B, Mappings...) {
-        // Compile time created mapper
-        alias class MapperImpl : BaseMapper!(A, B) {
-            this(AutoMapper context)
-            {
-                super(context);
-            }
+    template completeUserMappingImpl(size_t idx) {
+        static if (idx < FlattenedClassMembers!A.length) {
+            enum M = FlattenedClassMembers!A[idx];
 
-            override B map(A a)
-            {
-                B b = new B();
-
-                static foreach(Mapping; Mappings) {
-                    static assert(hasMember!(B, Mapping.BMember), Mapping.BMember ~ " is not a member of " ~ B.stringof);
-
-                    // ForMember - mapMember
-                    static if (isForMember!(Mapping, ForMemberType.mapMember)) {
-                        static assert(hasNestedMember!(A, Mapping.Action), Mapping.Action ~ " is not a member of " ~ A.stringof);
-
-                        // same type
-                        static if (is(MemberType!(B, Mapping.BMember) == MemberType!(A, Mapping.Action))) {
-                            __traits(getMember, b, Mapping.BMember) = mixin(GetMember!(a, Mapping.Action)); // b.member = a. member;
-                        }
-                        // different type: map
-                        else {
-                            __traits(getMember, b, Mapping.BMember) = context.map!(
-                                MemberType!(B, Mapping.BMember),
-                                MemberType!(A, Mapping.Action))(__traits(getMember, a, Mapping.Action)); // b.member = context.map(a.member);
-                        }
-                    }
-                    // ForMember - mapDelegate
-                    else static if (isForMember!(Mapping, ForMemberType.mapDelegate)) {
-                        // static assert return type
-                        static assert(is(ReturnType!(Mapping.Action) == MemberType!(B, Mapping.BMember)),
-                            "the func in " ~ ForMember.stringof ~ " must return a '" ~
-                            MemberType!(B, Mapping.BMember).stringof ~ "' like " ~ B.stringof ~
-                            "." ~ Mapping.BMember);
-                        // static assert parameters
-                        static assert(Parameters!(Mapping.Action).length is 1 && is(Parameters!(Mapping.Action)[0] == A),
-                            "the func in " ~ ForMember.stringof ~ " must take a value of type '" ~ A.stringof ~"'");
-
-                        __traits(getMember, b, Mapping.BMember) = Mapping.Action(a);
-                    }
+            // un-mapped by user
+            static if (!MappedMembers.canFind(M)) {
+                // B has this member ?
+                static if (hasMember!(B, M)) {
+                    alias completeUserMappingImpl = AliasSeq!(ForMember!(M, M), completeUserMappingImpl!(idx+1));
                 }
-
-                enum string[] mappedMembers = buildMappedMemberList!(Mappings);
-
-                // warn about un-mapped members in B
-                static foreach(member; ClassMembers!B)
-                    static if (!mappedMembers.canFind(member))
-                        static assert(false, "non mapped member in destination object '" ~ B.stringof ~"." ~ member ~ "'");
-
-                return b;
-            }
-        }
-    }
-
-    enum string[] userMappedMembers = buildMappedMemberList!(UserMappings);
-
-    // transform a string like "foo.bar" to "fooBar"
-    template flattenedMemberToCamelCase(string M)
-    {
-        import std.string : split, join, capitalize;
-
-        enum Split = M.split(".");
-        private template flattenedMemberToCamelCaseImpl(size_t idx) {
-            static if (idx < Split.length) {
-                static if (idx is 0)
-                    enum string flattenedMemberToCamelCaseImpl = join([Split[idx], flattenedMemberToCamelCaseImpl!(idx + 1)]); // do not capitalize
-                else
-                    enum string flattenedMemberToCamelCaseImpl = join([Split[idx].capitalize, flattenedMemberToCamelCaseImpl!(idx + 1)]);
-            }
-            else
-                enum string flattenedMemberToCamelCaseImpl = "";
-        }
-
-        enum flattenedMemberToCamelCase = flattenedMemberToCamelCaseImpl!0;
-    }
-
-    // get un-mapper flattened member present in B (recursive template)
-    private template completeUserMapping(Mappings...) {
-        template completeUserMappingImpl(size_t idx) {
-            static if (idx < FlattenedClassMembers!A.length) {
-                enum M = FlattenedClassMembers!A[idx];
-
-                // un-mapped by user
-                static if (!userMappedMembers.canFind(M)) {
-                    // B has this member ?
-                    static if (hasMember!(B, M)) {
-                        alias completeUserMappingImpl = TypeTuple!(ForMember!(M, M), completeUserMappingImpl!(idx+1));
-                    }
-                    // B has this flatenned class member ?
-                    else static if (hasMember!(B, flattenedMemberToCamelCase!M)) {
-                        alias completeUserMappingImpl = TypeTuple!(ForMember!(flattenedMemberToCamelCase!M, M), completeUserMappingImpl!(idx+1));
-                    }
-                    else
-                        alias completeUserMappingImpl = completeUserMappingImpl!(idx+1);
+                // B has this flatenned class member ?
+                else static if (hasMember!(B, flattenedMemberToCamelCase!M)) {
+                    alias completeUserMappingImpl = AliasSeq!(ForMember!(flattenedMemberToCamelCase!M, M), completeUserMappingImpl!(idx+1));
                 }
                 else
                     alias completeUserMappingImpl = completeUserMappingImpl!(idx+1);
             }
             else
-                alias completeUserMappingImpl = TypeTuple!();
-
+                alias completeUserMappingImpl = completeUserMappingImpl!(idx+1);
         }
+        else
+            alias completeUserMappingImpl = AliasSeq!();
 
-        alias completeUserMapping = TypeTuple!(completeUserMappingImpl!0, Mappings);
     }
 
-    alias Mapper = MapperImpl!(A, B, completeUserMapping!(UserMappings));
+    alias completeUserMapping = AliasSeq!(completeUserMappingImpl!0, Mappings);
 }
 
-/// Array mapper.
-class BuiltinMapper(A, B) : BaseMapper!(A, B) if (isArray!A && isArray!B)
+/** Compile time class mapping. */
+class AutoMapper(Mappers...)
 {
-    this(AutoMapper context) { super(context); }
+    import std.algorithm : canFind;
 
-    override B map(A value)
+    static assert(allSatisfy!(isMapperDefinition, Mappers), "Invalid template arguements.");
+
+    /// Find the right mapper in the Mappers variadic template.
+    private template getMapperDefinition(A, B)
     {
-        B ret = B.init;
-
-        foreach(ForeachType!A elem; value) {
-            static if (is(ForeachType!A == ForeachType!B))
-                ret ~= elem; // same array type, just copy
+        private template getMapperDefinitionImpl(size_t idx) {
+            static if (idx < Mappers.length) {
+                alias M = Mappers[idx];
+                static if (is(M : Mapper!(A, B)))
+                    alias getMapperDefinitionImpl = M; // found
+                else static if (is(M : Mapper!(A, B, T), T))
+                    alias getMapperDefinitionImpl = M; // found too
+                else
+                    alias getMapperDefinitionImpl = getMapperDefinitionImpl!(idx + 1); // continue searching
+            }
             else
-                ret ~= context.map!(ForeachType!B)(elem); // else map
+                alias getMapperDefinitionImpl = void; // not found
         }
 
-        return ret;
-    }
-}
-
-///
-unittest
-{
-    auto am = new AutoMapper();
-    auto m = new BuiltinMapper!(int[], int[])(am);
-
-    auto res = m.map([1, 2, 4]);
-}
-
-/** Automappler help you create mapper.
-Mapper are generated at compile-time.
-*/
-class AutoMapper
-{
-    import std.conv : castFrom, to;
-
-    IMapper[string] _mappers;
-
-    auto createMapper(A, B, Mappings...)()
-    {
-        auto mapper = new Mapper!(A, B, Mappings)(this);
-        _mappers[getMappingName!(A, B)] = mapper;
-        return mapper;
-    }
-
-    private template getMappingName(A, B)
-    {
-        enum string getMappingName = fullyQualifiedName!A ~ "_" ~ fullyQualifiedName!B;
+        alias getMapperDefinition = getMapperDefinitionImpl!0;
     }
 
     /// Class mapper.
     B map(B, A)(A a) if (isClass!A && isClass!B)
     {
-        IMapper* mapper = (getMappingName!(A, B) in _mappers);
+        B b = new B();
 
-        if (mapper is null)
-            throw new Exception("no mapper found for mapping from " ~ A.stringof ~ " to " ~ B.stringof ~ ". " ~
-                "Please setup a mapper using am.createMapper!(" ~ A.stringof ~ ", " ~ B.stringof ~ ", ...);");
+        alias M = getMapperDefinition!(A, B);
 
-        return castFrom!IMapper.to!(BaseMapper!(A, B))(*mapper).map(a);
-    }
+        static if (is(M == void))
+            static assert(false, "No mapper found for mapping from " ~ A.stringof ~ " to " ~ B.stringof);
+        else {
+            // auto complete mappping
+            alias AutoMapping = completeUserMapping!(A, B, M.Mappings);
 
-    /// Builtin mapper.
-    B map(B, A)(A a) if (!isClass!A && !isClass!B)
-    {
-        if (getMappingName!(A, B) !in _mappers) {
-            _mappers[getMappingName!(A, B)] = new BuiltinMapper!(A, B)(this);
+            // warn about un-mapped members in B
+            static foreach(member; ClassMembers!B)
+                static if (!buildMappedMemberList!(AutoMapping).canFind(member))
+                    static assert(false, "non mapped member in destination object '" ~ B.stringof ~"." ~ member ~ "'");
+
+            // generate mapping code
+            static foreach(Mapping; AutoMapping) {
+                static assert(hasMember!(B, Mapping.BMember), Mapping.BMember ~ " is not a member of " ~ B.stringof);
+
+                // ForMember - mapMember
+                static if (isForMember!(Mapping, ForMemberType.mapMember)) {
+                    static assert(hasNestedMember!(A, Mapping.Action), Mapping.Action ~ " is not a member of " ~ A.stringof);
+
+                    // same type
+                    static if (is(MemberType!(B, Mapping.BMember) == MemberType!(A, Mapping.Action))) {
+                        __traits(getMember, b, Mapping.BMember) = mixin(GetMember!(a, Mapping.Action)); // b.member = a. member;
+                    }
+                    // different type: map
+                    else {
+                        __traits(getMember, b, Mapping.BMember) = this.map!(
+                            MemberType!(B, Mapping.BMember),
+                            MemberType!(A, Mapping.Action))(__traits(getMember, a, Mapping.Action)); // b.member = context.map(a.member);
+                    }
+                }
+                // ForMember - mapDelegate
+                else static if (isForMember!(Mapping, ForMemberType.mapDelegate)) {
+                    // static assert return type
+                    static assert(is(ReturnType!(Mapping.Action) == MemberType!(B, Mapping.BMember)),
+                        "the func in " ~ ForMember.stringof ~ " must return a '" ~
+                        MemberType!(B, Mapping.BMember).stringof ~ "' like " ~ B.stringof ~
+                        "." ~ Mapping.BMember);
+                    // static assert parameters
+                    static assert(Parameters!(Mapping.Action).length is 1 && is(Parameters!(Mapping.Action)[0] == A),
+                        "the func in " ~ ForMember.stringof ~ " must take a value of type '" ~ A.stringof ~"'");
+                    __traits(getMember, b, Mapping.BMember) = Mapping.Action(a);
+                }
+            }
         }
 
-        auto m = castFrom!IMapper.to!(BaseMapper!(A, B))(_mappers[getMappingName!(A, B)]);
-        return m.map(a);
+        return b;
     }
 
+    /// Builtin array mapper.
+    B map(B, A)(A a) if (isArray!A && isArray!B)
+    {
+        B ret = B.init;
+
+        foreach(ForeachType!A elem; a) {
+            static if (is(ForeachType!A == ForeachType!B))
+                ret ~= elem; // same array type, just copy
+            else
+                ret ~= this.map!(ForeachType!B)(elem); // else map
+        }
+
+        return ret;
+    }
 }
 
 // array
@@ -313,10 +260,9 @@ unittest
         DataDTO[] data;
     }
 
-    auto am = new AutoMapper();
-
-    am.createMapper!(Data, DataDTO);
-    am.createMapper!(A, B);
+    auto am = new AutoMapper!(
+        Mapper!(Data, DataDTO),
+        Mapper!(A, B));
 
     A a = new A();
     B b = am.map!B(a);
@@ -347,10 +293,9 @@ unittest
         long   addressZipcode;
     }
 
-    auto am = new AutoMapper();
-
-    am.createMapper!(User, UserDTO,
-        ForMember!("fullName", (User a) => a.name ~ " " ~ a.lastName ));
+    auto am = new AutoMapper!(
+        Mapper!(User, UserDTO,
+            ForMember!("fullName", (User a) => a.name ~ " " ~ a.lastName )));
 
     auto user = new User();
     UserDTO dto = am.map!UserDTO(user);
@@ -376,10 +321,9 @@ unittest
         int addressZipcode;
     }
 
-    auto am = new AutoMapper();
-
-    am.createMapper!(A, B,
-        ForMember!("addressZipcode", "address.zipcode"));
+    auto am = new AutoMapper!(
+        Mapper!(A, B,
+            ForMember!("addressZipcode", "address.zipcode")));
 
     A a = new A();
     B b = am.map!B(a);
@@ -405,13 +349,11 @@ unittest
         AddressDTO address;
     }
 
-    auto am = new AutoMapper();
-
-    am.createMapper!(Address, AddressDTO,
-        ForMember!("zipcode", "zipcode"));
-
-    am.createMapper!(A, B,
-        ForMember!("address", "address"));
+    auto am = new AutoMapper!(
+        Mapper!(Address, AddressDTO,
+            ForMember!("zipcode", "zipcode")),
+        Mapper!(A, B,
+            ForMember!("address", "address")));
 
     A a = new A();
     B b = am.map!B(a);
@@ -432,20 +374,18 @@ unittest
         string mod;
     }
 
-    auto am = new AutoMapper();
-
-    auto m = am.createMapper!(A, B,
-        ForMember!("str", "str"),
-        ForMember!("foo", "foo"),
-        IgnoreMember!"bar",
-        ForMember!("mod", (A a) {
-            return "modified";
-        })
-    );
+   auto am = new AutoMapper!(
+        Mapper!(A, B,
+            ForMember!("str", "str"),
+            ForMember!("foo", "foo"),
+            IgnoreMember!"bar",
+            ForMember!("mod", (A a) {
+                return "modified";
+            })));
 
 
     A a = new A();
-    B b = m.map(a);
+    B b = am.map!B(a);
     assert(b.str == a.str);
     assert(a.foo == a.foo);
     assert(b.mod == "modified");
