@@ -159,15 +159,10 @@ private template completeUserMapping(A, B, Mappings...) if (allSatisfy!(isCustom
                         completeUserMappingImpl!(idx+1));
                 }
                 // B has this flatenned class member: B.fooBar = A.foo.bar
-                else static if (hasMember!(B, flattenedMemberToCamelCase!M)) {
-                    alias completeUserMappingImpl = AliasSeq!(ForMember!(flattenedMemberToCamelCase!M, M),
+                else static if (hasMember!(B, M.flattenedToCamelCase())) {
+                    alias completeUserMappingImpl = AliasSeq!(ForMember!(M.flattenedToCamelCase, M),
                         completeUserMappingImpl!(idx+1));
                 }
-                // B has this nested member: B.foo.bar = A.fooBar
-                /*else static if (hasNestedMember!(B, M.splitCamelCase.join("."))) {
-                    alias completeUserMappingImpl = AliasSeq!(ForMember!(M.splitCamelCase.join("."), M),
-                        completeUserMappingImpl!(idx+1));
-                }*/
                 else
                     alias completeUserMappingImpl = completeUserMappingImpl!(idx+1);
             }
@@ -177,27 +172,6 @@ private template completeUserMapping(A, B, Mappings...) if (allSatisfy!(isCustom
         else
             alias completeUserMappingImpl = AliasSeq!();
     }
-/*
-    private template instanciateClassMemberInDest() {
-        enum FMB = FlattenedClassMembers!B;
-        enum FMA = FlattenedClassMembers!A;
-        private template instanciateClassMemberInDestImpl(size_t idx) {
-            static if (idx < FMB.length) {
-                static if (isClass!(MemberType!(B, FMB[idx]))) {
-                    static if (FMA.canFind(FMB[idx])) {
-                        pragma(msg, FMB[idx]);
-                    }
-                   // alias instanciateClassMemberInDestImpl = AliasSeq!(ForMember!(FMB[idx], (A a) { return new MemberType!(B, FMB[idx]); }),
-                   //     instanciateClassMemberInDestImpl!(idx + 1));
-                }
-                //else
-                    alias instanciateClassMemberInDestImpl = instanciateClassMemberInDestImpl!(idx + 1);
-            }
-            else
-                alias instanciateClassMemberInDestImpl = AliasSeq!();
-        }
-        alias instanciateClassMemberInDest = instanciateClassMemberInDestImpl!0;
-    }*/
 
     alias completeUserMapping = AliasSeq!(completeUserMappingImpl!0, Mappings);
 }
@@ -387,7 +361,6 @@ unittest
         int addressZipcode = 74000;
     }
 
-    pragma(msg, "-------------------------------------------------");
     auto am = new AutoMapper!(
         Mapper!(A, B, Reverse));
 

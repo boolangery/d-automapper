@@ -249,26 +249,24 @@ template isClass(T)
     enum bool isClass = (is(T == class));
 }
 
-
-// transform a string like "foo.bar" to "fooBar"
-template flattenedMemberToCamelCase(string M)
+string flattenedToCamelCase(string str)
 {
     import std.string : split, join, capitalize;
+    import std.algorithm : map;
 
-    enum Split = M.split(".");
-    private template flattenedMemberToCamelCaseImpl(size_t idx) {
-        static if (idx < Split.length) {
-            static if (idx is 0)
-                enum string flattenedMemberToCamelCaseImpl = join([Split[idx], flattenedMemberToCamelCaseImpl!(idx + 1)]); // do not capitalize
-            else
-                enum string flattenedMemberToCamelCaseImpl = join([Split[idx].capitalize, flattenedMemberToCamelCaseImpl!(idx + 1)]);
-        }
-        else
-            enum string flattenedMemberToCamelCaseImpl = "";
-    }
+    auto sp = str.split(".");
 
-    enum flattenedMemberToCamelCase = flattenedMemberToCamelCaseImpl!0;
+    if (sp.length > 1)
+        return sp[0] ~ sp[1..$].map!capitalize.join();
+    else
+        return sp.join();
+}
 
+unittest
+{
+    static assert("foo.bar".flattenedToCamelCase() == "fooBar");
+    static assert("foo.bar.baz".flattenedToCamelCase() == "fooBarBaz");
+    static assert("foo".flattenedToCamelCase() == "foo");
 }
 
 string[] splitCamelCase(string str)
