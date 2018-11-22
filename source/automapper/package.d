@@ -136,10 +136,10 @@ template isMapperDefinition(T)
     enum bool isMapperDefinition = (is(T: Mapper!(A, B), A, B) || is(T: Mapper!(AB, BB, MB), AB, BB, MB));
 }
 
-/// Complete user mappings.
-///     * map member with the same name
-///     * map flattened member to destination object
-///       e.g: A.foo.bar is mapped to B.fooBar
+/** Complete user mappings.
+    * map member with the same name
+    * map flattened member to destination object
+      e.g: A.foo.bar is mapped to B.fooBar */
 private template completeUserMapping(A, B, Mappings...) if (allSatisfy!(isCustomMapping, Mappings))
 {
     import std.algorithm : canFind;
@@ -148,8 +148,8 @@ private template completeUserMapping(A, B, Mappings...) if (allSatisfy!(isCustom
     enum MappedMembers = buildMappedMemberList!(Mappings);
 
     private template completeUserMappingImpl(size_t idx) {
-        static if (idx < FlattenedClassMembers!A.length) {
-            enum M = FlattenedClassMembers!A[idx];
+        static if (idx < FlattenedMembers!A.length) {
+            enum M = FlattenedMembers!A[idx];
 
             // un-mapped by user
             static if (!MappedMembers.canFind(M)) {
@@ -176,8 +176,8 @@ private template completeUserMapping(A, B, Mappings...) if (allSatisfy!(isCustom
     alias completeUserMapping = AliasSeq!(completeUserMappingImpl!0, Mappings);
 }
 
-/// It returns a list of reversed mapper.
-/// e.g. for Mapper!(A, B, ForMember("foo", "bar")), it create Mapper!(B, A, ForMember("bar", "foo")
+/** It take a list of Mapper, and return a new list of reversed mapper if needed.
+e.g. for Mapper!(A, B, ForMember("foo", "bar")), it create Mapper!(B, A, ForMember("bar", "foo") */
 private template generateReversedMapper(Mappers...) if (allSatisfy!(isMapperDefinition, Mappers))
 {
     private template generateReversedMapperImpl(size_t idx) {
@@ -215,28 +215,30 @@ private template generateReversedMapper(Mappers...) if (allSatisfy!(isMapperDefi
     alias generateReversedMapper = generateReversedMapperImpl!0;
 }
 
+/** Complete user defined Mappers with automatic member mapping.
+    Params:
+        Mappers = list of Mapper */
+private template completeMappers(Mappers...) if (allSatisfy!(isMapperDefinition, Mappers))
+{
+    private template completeMappersImpl(size_t idx) {
+        static if (idx < Mappers.length) {
+            alias M = Mappers[idx];
+            alias completeMappersImpl = AliasSeq!(Mapper!(M.A, M.B, completeUserMapping!(M.A, M.B, M.Mappings)),
+                completeMappersImpl!(idx + 1));
+        }
+        else
+            alias completeMappersImpl = AliasSeq!();
+    }
+
+    alias completeMappers = completeMappersImpl!0;
+}
+
 /** Compile time class mapping. */
 class AutoMapper(Mappers...)
 {
     import std.algorithm : canFind;
 
     static assert(allSatisfy!(isMapperDefinition, Mappers), "Invalid template arguements.");
-
-    /// Complete user Mappers with automatic mapping
-    private template completeMappers(Mappers...)
-    {
-        private template completeMappersImpl(size_t idx) {
-            static if (idx < Mappers.length) {
-                alias M = Mappers[idx];
-                alias completeMappersImpl = AliasSeq!(Mapper!(M.A, M.B, completeUserMapping!(M.A, M.B, M.Mappings)),
-                    completeMappersImpl!(idx + 1));
-            }
-            else
-                alias completeMappersImpl = AliasSeq!();
-        }
-
-        alias completeMappers = completeMappersImpl!0;
-    }
 
     alias CompletedMappers = completeMappers!(Mappers); // complete user mapping
     // Generate reversed mapper and complete them too
@@ -344,6 +346,22 @@ class AutoMapper(Mappers...)
 
         return ret;
     }
+}
+
+// struct
+unittest
+{
+    static struct A {
+        int foo;
+    }
+
+    static struct B {
+        int foo;
+    }
+/*
+    auto am = new AutoMapper!(
+        Mapper!(A, B));*/
+
 }
 
 // reverse flattening

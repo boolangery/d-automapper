@@ -139,7 +139,7 @@ unittest
 /** Get a list of all public class member.
 Params:
     T = The class where to list member */
-template ClassMembers(T) if (is(T == class))
+template ClassMembers(T) if (isClassOrStruct!T)
 {
     import std.algorithm : canFind;
 
@@ -181,31 +181,30 @@ unittest
 }
 
 /** Get a list of flatenned class member. */
-template FlattenedClassMembers(T, string[] IgnoreList = null) if (is(T == class))
+template FlattenedMembers(T, string[] IgnoreList = null) if (isClassOrStruct!T)
 {
     import std.string : join;
 
-    private template FlattenedClassMembersImpl(U, size_t idx, string Prefix)
+    private template FlattenedMembersImpl(U, size_t idx, string Prefix)
     {
         static if (idx < ClassMembers!U.length) {
             enum M = ClassMembers!U[idx];
             enum P = (Prefix == "" ? "" : Prefix ~ "."); // prefix
 
             // it's a class: recurse
-            static if (is(MemberType!(U, M) == class))
-                //static if (Prefix == "")
-                    enum string[] FlattenedClassMembersImpl = (P ~ M) ~ FlattenedClassMembersImpl!(MemberType!(U, M), 0, P ~ M) ~ FlattenedClassMembersImpl!(U, idx + 1, Prefix);
-                //else
-                //    enum string[] FlattenedClassMembersImpl = Prefix ~ FlattenedClassMembersImpl!(MemberType!(U, M), 0, P ~ M) ~ FlattenedClassMembersImpl!(U, idx + 1, Prefix);
+            static if (isClassOrStruct!(MemberType!(U, M)))
+                enum string[] FlattenedMembersImpl = (P ~ M) ~
+                    FlattenedMembersImpl!(MemberType!(U, M), 0, P ~ M) ~
+                    FlattenedMembersImpl!(U, idx + 1, Prefix);
             else
-                enum string[] FlattenedClassMembersImpl = P ~ M ~ FlattenedClassMembersImpl!(U, idx + 1, Prefix);
+                enum string[] FlattenedMembersImpl = P ~ M ~ FlattenedMembersImpl!(U, idx + 1, Prefix);
         }
         else {
-            enum string[] FlattenedClassMembersImpl = [];
+            enum string[] FlattenedMembersImpl = [];
         }
     }
 
-    enum string[] FlattenedClassMembers = FlattenedClassMembersImpl!(T, 0, "");
+    enum string[] FlattenedMembers = FlattenedMembersImpl!(T, 0, "");
 }
 
 ///
@@ -235,8 +234,17 @@ unittest
         Address address;
     }
 
-    static assert(FlattenedClassMembers!C == ["baz", "baz.foo", "baz.foo.bar", "baz.foo.str", "baz.mid", "top"]);
-    static assert(FlattenedClassMembers!D == ["address", "address.zipcode"]);
+    static struct E {
+        int foo;
+    }
+
+    static struct F {
+        E bar;
+    }
+
+    static assert(FlattenedMembers!C == ["baz", "baz.foo", "baz.foo.bar", "baz.foo.str", "baz.mid", "top"]);
+    static assert(FlattenedMembers!D == ["address", "address.zipcode"]);
+    static assert(FlattenedMembers!F == ["bar", "bar.foo"]);
 }
 
 template Alias(alias T)
@@ -247,6 +255,11 @@ template Alias(alias T)
 template isClass(T)
 {
     enum bool isClass = (is(T == class));
+}
+
+template isClassOrStruct(T)
+{
+    enum bool isClassOrStruct = (is(T == class) || is(T == struct));
 }
 
 string flattenedToCamelCase(string str)
