@@ -122,18 +122,46 @@ private template reverseNeeded(Mapper) if (isMapperDefinition!Mapper)
     enum bool reverseNeeded = reverseNeededImpl!0;
 }
 
-/// A mapper definition.
-class Mapper(F, T, M...) if (allSatisfy!(isCustomMapping, M))
+enum MapperType
+{
+    classStruct,
+    typeConverter
+}
+
+/// A mapper definition for class and struct.
+class Mapper(F, T, M...) if (isClassOrStruct!F && isClassOrStruct!T && allSatisfy!(isCustomMapping, M))
 {
     alias A = F;
     alias B = T;
     alias Mappings = AliasSeq!M;
+    enum Type = MapperType.classStruct;
+}
+
+/// Type mapper.
+class Mapper(F, T, alias M) if (isDelegateWithRtParam!(M, F, T))
+{
+    alias A = F;
+    alias B = T;
+    alias Mappings = M;
+    enum Type = MapperType.typeConverter;
 }
 
 /// Is the provided template a Mapper ?
 template isMapperDefinition(T)
 {
-    enum bool isMapperDefinition = (is(T: Mapper!(A, B), A, B) || is(T: Mapper!(AB, BB, MB), AB, BB, MB));
+    enum bool isMapperDefinition = (is(T: Mapper!(A, B), A, B) || is(T: Mapper!(AB, BB, MB), AB, BB, MB) ||
+        is(T: Mapper!(A, B, M), A, B, alias M));
+}
+
+unittest
+{
+    class A {}
+    class B {}
+    struct C {}
+
+    static assert(isMapperDefinition!(Mapper!(A, B)));
+    static assert(isMapperDefinition!(Mapper!(long, int, (long l) => 42)));
+    static assert(isMapperDefinition!(Mapper!(long, C, (long l) => C())));
 }
 
 /** Complete user mappings.
@@ -233,6 +261,23 @@ private template completeMappers(Mappers...) if (allSatisfy!(isMapperDefinition,
     alias completeMappers = completeMappersImpl!0;
 }
 
+/// From a list of Mapper, get a new list of Mapper.Type matching provided Type.
+private template getMappersByType(MapperType Type, Mappers...) if (allSatisfy!(isMapperDefinition, Mappers))
+{
+    private template getMappersByTypeImpl(size_t idx) {
+        static if (idx < Mappers.length) {
+            static if (Mappers[idx].Type is Type)
+                alias getMappersByTypeImpl = AliasSeq!(Mappers[idx], getMappersByTypeImpl!(idx + 1));
+            else
+                alias getMappersByTypeImpl = getMappersByTypeImpl!(idx + 1);
+        }
+        else
+            alias getMappersByTypeImpl = AliasSeq!();
+    }
+
+    alias getMappersByType = getMappersByTypeImpl!0;
+}
+
 /** Compile time class mapping. */
 class AutoMapper(Mappers...)
 {
@@ -240,22 +285,26 @@ class AutoMapper(Mappers...)
 
     static assert(allSatisfy!(isMapperDefinition, Mappers), "Invalid template arguements.");
 
-    alias CompletedMappers = completeMappers!(Mappers); // complete user mapping
+    // sort mapper by type
+    alias ClassStructMappers = getMappersByType!(MapperType.classStruct, Mappers);
+    alias TypesConverters    = getMappersByType!(MapperType.typeConverter, Mappers);
+
+    alias CompletedMappers = completeMappers!(ClassStructMappers); // complete user mapping
     // Generate reversed mapper and complete them too
     alias FullMappers = AliasSeq!(CompletedMappers, completeMappers!(generateReversedMapper!CompletedMappers));
 
     // debug pragma(msg, "FullMappers: " ~ FullMappers.stringof);
 
-    /// Find the right mapper in the Mappers variadic template.
+    /// Find the right mapper in the FullMappers.
     private template getMapperDefinition(A, B)
     {
         private template getMapperDefinitionImpl(size_t idx) {
             static if (idx < FullMappers.length) {
                 alias M = FullMappers[idx];
-                static if (is(M : Mapper!(A, B)))
-                    alias getMapperDefinitionImpl = M; // found
-                else static if (is(M : Mapper!(A, B, T), T))
-                    alias getMapperDefinitionImpl = M; // found too
+                static if (is(M : Mapper!(A, B))) // Mapper without mapping
+                    alias getMapperDefinitionImpl = M;
+                else static if (is(M : Mapper!(A, B, T), T)) // Mapper with mapping
+                    alias getMapperDefinitionImpl = M;
                 else
                     alias getMapperDefinitionImpl = getMapperDefinitionImpl!(idx + 1); // continue searching
             }
@@ -264,6 +313,24 @@ class AutoMapper(Mappers...)
         }
 
         alias getMapperDefinition = getMapperDefinitionImpl!0;
+    }
+
+    /// Find the type converter in the TypesConverters.
+    private template getTypeConverter(A, B)
+    {
+        private template getTypeConverterImpl(size_t idx) {
+            static if (idx < TypesConverters.length) {
+                alias M = TypesConverters[idx];
+                static if (is(M : Mapper!(A, B, D), alias D))
+                    alias getTypeConverterImpl = M;
+                else
+                    alias getTypeConverterImpl = getTypeConverterImpl!(idx + 1); // continue searching
+            }
+            else
+                alias getTypeConverterImpl = void; // not found
+        }
+
+        alias getTypeConverter = getTypeConverterImpl!0;
     }
 
     /// Class mapper.
@@ -349,7 +416,46 @@ class AutoMapper(Mappers...)
 
         return ret;
     }
+
+    /// Type converter.
+    B map(B, A)(A a) if (!isArray!A && !isArray!B && (!isClassOrStruct!A || !isClassOrStruct!B))
+    {
+        alias M = getTypeConverter!(A, B);
+
+        static if (is(M == void))
+            static assert(false, "No type converter found for mapping from " ~ A.stringof ~ " to " ~ B.stringof ~ ". Register it with \"" ~
+                Mapper!(A, B, (A a) => B.init).stringof ~ "\" for example.");
+        else {
+            return M.Mappings(a);
+        }
+    }
+
 }
+
+// Type converters
+unittest
+{
+    import std.datetime;
+
+    static class A {
+        long timestamp = 1542873605;
+    }
+
+    static class B {
+        SysTime timestamp;
+    }
+
+    auto am = new AutoMapper!(
+        Mapper!(long, SysTime, (long ts) => SysTime(ts)),
+        Mapper!(A, B));
+
+
+    A a = new A();
+    B b = am.map!B(a);
+
+    assert(SysTime(a.timestamp) == b.timestamp);
+}
+
 
 // struct
 unittest

@@ -311,3 +311,19 @@ unittest
 {
     static assert("fooBarBaz".splitCamelCase() == ["foo", "bar", "baz"]);
 }
+
+/// Returns true if its a RT delegate(P)
+template isDelegateWithRtParam(alias D, P, RT)
+{
+    static if (isCallable!D)
+        enum bool isDelegateWithRtParam = (is(ReturnType!D == RT) && (Parameters!D.length > 0) &&
+            is(Parameters!D[0] == P));
+    else
+        enum bool isDelegateWithRtParam = false;
+}
+
+///
+unittest
+{
+    static assert(isDelegateWithRtParam!((long ts) => "foo", long, string));
+}
