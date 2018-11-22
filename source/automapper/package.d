@@ -16,11 +16,6 @@ template isCustomMapping(T)
     enum bool isCustomMapping = (is(T: CustomMapping));
 }
 
-class Reverse : CustomMapping
-{
-
-}
-
 /// Base class for creating a custom member mapping.
 /// Template Params:
 ///     BM = The member to map in the destination object
@@ -106,6 +101,7 @@ private template buildMappedMemberList(Mappings...) if (allSatisfy!(isCustomMapp
 }
 
 // Returns true if the mapper needs to be reversed (Mappings containts Reverse).
+/*
 private template reverseNeeded(Mapper) if (isMapperDefinition!Mapper)
 {
     private template reverseNeededImpl(size_t idx) {
@@ -120,7 +116,7 @@ private template reverseNeeded(Mapper) if (isMapperDefinition!Mapper)
     }
 
     enum bool reverseNeeded = reverseNeededImpl!0;
-}
+}*/
 
 enum MapperType
 {
@@ -129,28 +125,49 @@ enum MapperType
 }
 
 /// A mapper definition for class and struct.
-class Mapper(F, T, M...) if (isClassOrStruct!F && isClassOrStruct!T && allSatisfy!(isCustomMapping, M))
+class CreateMap(F, T, M...)
 {
+    // class or struct mapper
+    static if (isClassOrStruct!F && isClassOrStruct!T && allSatisfy!(isCustomMapping, M)) {
+        enum Type = MapperType.classStruct;
+        alias Mappings = AliasSeq!M;
+    }
+    // type converter
+    else static if (M.length == 1 && isDelegateWithRtParam!(M[0], F, T)) {
+        enum Type = MapperType.typeConverter;
+        alias Mappings = M[0];
+    }
+    else
+        static assert (false, "invalid template parameters");
+
+
     alias A = F;
     alias B = T;
-    alias Mappings = AliasSeq!M;
-    enum Type = MapperType.classStruct;
+
+    template ReverseMap()
+    {
+        alias ReverseMap = CreateMapWithReverse!(F, T, M);
+    }
+    enum bool MustBeReversed = false;
 }
 
-/// Type mapper.
-class Mapper(F, T, alias M) if (isDelegateWithRtParam!(M, F, T))
+private class CreateMapWithReverse(F, T, M...) : CreateMap!(F, T, M)
 {
-    alias A = F;
-    alias B = T;
-    alias Mappings = M;
-    enum Type = MapperType.typeConverter;
+    enum bool MustBeReversed = true; // override
 }
+
+unittest
+{
+    class A {}
+    static assert(CreateMap!(A, A).ReverseMap!().MustBeReversed);
+    static assert(!CreateMap!(A, A).MustBeReversed);
+}
+
 
 /// Is the provided template a Mapper ?
 template isMapperDefinition(T)
 {
-    enum bool isMapperDefinition = (is(T: Mapper!(A, B), A, B) || is(T: Mapper!(AB, BB, MB), AB, BB, MB) ||
-        is(T: Mapper!(A, B, M), A, B, alias M));
+    enum bool isMapperDefinition = (is(T: CreateMap!(A, B), A, B) || is(T: CreateMap!(AB, BB, MB), AB, BB, MB));
 }
 
 unittest
@@ -159,9 +176,9 @@ unittest
     class B {}
     struct C {}
 
-    static assert(isMapperDefinition!(Mapper!(A, B)));
-    static assert(isMapperDefinition!(Mapper!(long, int, (long l) => 42)));
-    static assert(isMapperDefinition!(Mapper!(long, C, (long l) => C())));
+    static assert(isMapperDefinition!(CreateMap!(A, B)));
+    static assert(isMapperDefinition!(CreateMap!(long, int, (long l) => 42)));
+    static assert(isMapperDefinition!(CreateMap!(long, C, (long l) => C())));
 }
 
 /** Complete user mappings.
@@ -205,7 +222,7 @@ private template completeUserMapping(A, B, Mappings...) if (allSatisfy!(isCustom
 }
 
 /** It take a list of Mapper, and return a new list of reversed mapper if needed.
-e.g. for Mapper!(A, B, ForMember("foo", "bar")), it create Mapper!(B, A, ForMember("bar", "foo") */
+e.g. for CreateMap!(A, B, ForMember("foo", "bar")), it create CreateMap!(B, A, ForMember("bar", "foo") */
 private template generateReversedMapper(Mappers...) if (allSatisfy!(isMapperDefinition, Mappers))
 {
     private template generateReversedMapperImpl(size_t idx) {
@@ -230,8 +247,8 @@ private template generateReversedMapper(Mappers...) if (allSatisfy!(isMapperDefi
                     alias reverseMapping = AliasSeq!();
             }
 
-            static if (reverseNeeded!M) // reverse it if needed
-                alias generateReversedMapperImpl = AliasSeq!(Mapper!(M.B, M.A, completeUserMapping!(M.B, M.A, reverseMapping!0)),
+            static if (M.MustBeReversed) // reverse it if needed
+                alias generateReversedMapperImpl = AliasSeq!(CreateMap!(M.B, M.A, completeUserMapping!(M.B, M.A, reverseMapping!0)),
                     generateReversedMapperImpl!(idx + 1));
             else
                 alias generateReversedMapperImpl = generateReversedMapperImpl!(idx + 1); // continue
@@ -251,7 +268,14 @@ private template completeMappers(Mappers...) if (allSatisfy!(isMapperDefinition,
     private template completeMappersImpl(size_t idx) {
         static if (idx < Mappers.length) {
             alias M = Mappers[idx];
-            alias completeMappersImpl = AliasSeq!(Mapper!(M.A, M.B, completeUserMapping!(M.A, M.B, M.Mappings)),
+
+            // select good mapper type
+            static if (M.MustBeReversed)
+                alias CM = CreateMapWithReverse;
+            else
+                alias CM = CreateMap;
+
+            alias completeMappersImpl = AliasSeq!(CM!(M.A, M.B, completeUserMapping!(M.A, M.B, M.Mappings)),
                 completeMappersImpl!(idx + 1));
         }
         else
@@ -301,9 +325,9 @@ class AutoMapper(Mappers...)
         private template getMapperDefinitionImpl(size_t idx) {
             static if (idx < FullMappers.length) {
                 alias M = FullMappers[idx];
-                static if (is(M : Mapper!(A, B))) // Mapper without mapping
+                static if (is(M : CreateMap!(A, B))) // Mapper without mapping
                     alias getMapperDefinitionImpl = M;
-                else static if (is(M : Mapper!(A, B, T), T)) // Mapper with mapping
+                else static if (is(M : CreateMap!(A, B, T), T)) // Mapper with mapping
                     alias getMapperDefinitionImpl = M;
                 else
                     alias getMapperDefinitionImpl = getMapperDefinitionImpl!(idx + 1); // continue searching
@@ -321,7 +345,7 @@ class AutoMapper(Mappers...)
         private template getTypeConverterImpl(size_t idx) {
             static if (idx < TypesConverters.length) {
                 alias M = TypesConverters[idx];
-                static if (is(M : Mapper!(A, B, D), alias D))
+                static if (is(M : CreateMap!(A, B, D), alias D))
                     alias getTypeConverterImpl = M;
                 else
                     alias getTypeConverterImpl = getTypeConverterImpl!(idx + 1); // continue searching
@@ -424,7 +448,7 @@ class AutoMapper(Mappers...)
 
         static if (is(M == void))
             static assert(false, "No type converter found for mapping from " ~ A.stringof ~ " to " ~ B.stringof ~ ". Register it with \"" ~
-                Mapper!(A, B, (A a) => B.init).stringof ~ "\" for example.");
+                CreateMap!(A, B, (A a) => B.init).stringof ~ "\" for example.");
         else {
             return M.Mappings(a);
         }
@@ -446,8 +470,8 @@ unittest
     }
 
     auto am = new AutoMapper!(
-        Mapper!(long, SysTime, (long ts) => SysTime(ts)),
-        Mapper!(A, B));
+        CreateMap!(long, SysTime, (long ts) => SysTime(ts)),
+        CreateMap!(A, B));
 
 
     A a = new A();
@@ -469,7 +493,7 @@ unittest
     }
 
     auto am = new AutoMapper!(
-        Mapper!(A, B));
+        CreateMap!(A, B));
 
     A a;
     B b = am.map!B(a);
@@ -492,7 +516,8 @@ unittest
     }
 
     auto am = new AutoMapper!(
-        Mapper!(A, B, Reverse));
+        CreateMap!(A, B)
+            .ReverseMap!());
 
     B b = new B();
     A a = am.map!A(b);
@@ -525,8 +550,8 @@ unittest
     }
 
     auto am = new AutoMapper!(
-        Mapper!(Data, DataDTO),
-        Mapper!(A, B));
+        CreateMap!(Data, DataDTO),
+        CreateMap!(A, B));
 
     A a = new A();
     B b = am.map!B(a);
@@ -558,7 +583,7 @@ unittest
     }
 
     auto am = new AutoMapper!(
-        Mapper!(User, UserDTO,
+        CreateMap!(User, UserDTO,
             ForMember!("fullName", (User a) => a.name ~ " " ~ a.lastName )));
 
     auto user = new User();
@@ -586,7 +611,7 @@ unittest
     }
 
     auto am = new AutoMapper!(
-        Mapper!(A, B,
+        CreateMap!(A, B,
             ForMember!("addressZipcode", "address.zipcode")));
 
     A a = new A();
@@ -614,12 +639,12 @@ unittest
     }
 
     auto am = new AutoMapper!(
-        Mapper!(Address, AddressDTO,
-            ForMember!("zipcode", "zipcode"),
-            Reverse),
-        Mapper!(A, B,
-            ForMember!("address", "address"),
-            Reverse));
+        CreateMap!(Address, AddressDTO,
+            ForMember!("zipcode", "zipcode"))
+                .ReverseMap!(),
+        CreateMap!(A, B,
+            ForMember!("address", "address"))
+                .ReverseMap!());
 
     A a = new A();
     B b = am.map!B(a);
@@ -644,7 +669,7 @@ unittest
     }
 
    auto am = new AutoMapper!(
-        Mapper!(A, B,
+        CreateMap!(A, B,
             ForMember!("str", "str"),
             ForMember!("foo", "foo"),
             IgnoreMember!"bar",
