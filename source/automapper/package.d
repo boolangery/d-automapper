@@ -224,30 +224,45 @@ private enum MapperType
         M = A list of CustomMapping (ForMember, Ignore...) or a delegate to define
             a type converter
 **/
-class CreateMap(F, T, M...)
+private abstract class CreateMapBase(F, T, MapperType TP)
 {
-    // class or struct mapper
-    static if (isClassOrStruct!F && isClassOrStruct!T && allSatisfy!(isCustomMapping, M)) {
-        enum Type = MapperType.classStruct;
-        alias Mappings = AliasSeq!M;
-    }
-    // type converter
-    else static if (M.length == 1 && isDelegateWithRtParam!(M[0], F, T)) {
-        enum Type = MapperType.typeConverter;
-        alias Mappings = M[0];
-    }
-    else
-        static assert (false, "invalid template parameters");
-
-
     alias A = F;
     alias B = T;
+    enum Type = TP;
+}
 
-    template ReverseMap()
-    {
-        alias ReverseMap = CreateMapWithReverse!(F, T, M);
+template CreateMap(F, T, M...)
+{
+    // it's a class or struct mapper
+    static if (isClassOrStruct!F && isClassOrStruct!T && allSatisfy!(isCustomMapping, M)) {
+        alias class CreateMap : CreateMapBase!(F, T, MapperType.classStruct)
+        {
+            alias Mappings = AliasSeq!M;
+            enum bool MustBeReversed = false;
+
+            template ReverseMap()
+            {
+                alias class ReverseMap : CreateMapBase!(F, T, MapperType.classStruct)
+                {
+                    alias Mappings = AliasSeq!M;
+                    enum bool MustBeReversed = true;
+                }
+            }
+
+        }
     }
-    enum bool MustBeReversed = false;
+    // it's a type converter
+    else static if (M.length == 1 && isDelegateWithRtParam!(M[0], F, T)) {
+        alias class CreateMap : CreateMapBase!(F, T, MapperType.typeConverter)
+        {
+            alias Mappings = M[0];
+            enum bool MustBeReversed = false;
+        }
+    }
+    else
+    {
+        static assert(false, "invalid call");
+    }
 }
 
 ///
@@ -304,7 +319,7 @@ unittest
 /// Is the provided template a Mapper ?
 private template isMapperDefinition(T)
 {
-    enum bool isMapperDefinition = (is(T: CreateMap!(A, B), A, B) || is(T: CreateMap!(AB, BB, MB), AB, BB, MB));
+    enum bool isMapperDefinition = (is(T: CreateMapBase!(F, T, TP), F, T, MapperType TP));
 }
 
 unittest
@@ -465,7 +480,7 @@ private:
     // Generate reversed mapper and complete them too
     alias FullMappers = AliasSeq!(CompletedMappers, completeMappers!(generateReversedMapper!CompletedMappers));
 
-    // debug pragma(msg, "FullMappers: " ~ FullMappers.stringof);
+    // debug pragma(msg, "FullMappers: " ~ Mappers.stringof);
 
     // Find the right mapper in the FullMappers.
     private template getMapperDefinition(A, B)
