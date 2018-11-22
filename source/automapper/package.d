@@ -267,9 +267,12 @@ class AutoMapper(Mappers...)
     }
 
     /// Class mapper.
-    B map(B, A)(A a) if (isClass!A && isClass!B)
+    B map(B, A)(A a) if (isClassOrStruct!A && isClassOrStruct!B)
     {
-        B b = new B();
+        static if (isClass!B)
+            B b = new B();
+        else
+            B b;
 
         alias M = getMapperDefinition!(A, B);
 
@@ -358,10 +361,13 @@ unittest
     static struct B {
         int foo;
     }
-/*
-    auto am = new AutoMapper!(
-        Mapper!(A, B));*/
 
+    auto am = new AutoMapper!(
+        Mapper!(A, B));
+
+    A a;
+    B b = am.map!B(a);
+    assert(b.foo == a.foo);
 }
 
 // reverse flattening
