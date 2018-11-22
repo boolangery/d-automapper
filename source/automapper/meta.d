@@ -1,4 +1,4 @@
-/**
+/*
     Meta utils.
 */
 module automapper.meta;
@@ -9,10 +9,12 @@ package:
 import std.traits;
 public import std.meta;
 
-/** Get an alias on the member type (work with nested member like "foo.bar").
-Params:
-    T = the type where the member is
-    member = the member to alias */
+/**
+    Get an alias on the member type (work with nested member like "foo.bar").
+    Params:
+        T = the type where the member is
+        members = the member to alias
+*/
 template MemberType(T, string members)
 {
     import std.string : split, join;
