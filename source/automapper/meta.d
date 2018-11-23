@@ -183,7 +183,7 @@ unittest
 }
 
 /** Get a list of flatenned class member. */
-template FlattenedMembers(T, string[] IgnoreList = null) if (isClassOrStruct!T)
+template FlattenedMembers(T) if (isClassOrStruct!T)
 {
     import std.string : join;
 
