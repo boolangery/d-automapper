@@ -6,17 +6,17 @@ module automapper.value.transformer;
 import std.meta;
 
 
-template ValueTransformers(T) if (isValueTransformers!T)
+template ValueTransformer(T) if (isValueTransformer!T)
 {
-    alias ValueTransformers = T;
+    alias ValueTransformer = T;
 }
 
-template ValueTransformers(T, alias D) if (isCallable!D)
+template ValueTransformer(T, alias D) if (isCallable!D)
 {
     static assert((Parameters!D.length == 1) && is(Parameters!D[0] == T) && is(ReturnType!D == T),
         "the delegate must take a " ~ T.stringof ~ " and return a " ~ T.stringof);
 
-    alias static class ValueTransformers : IValueTransformer
+    alias static class ValueTransformer : IValueTransformer
     {
         T transform(in T value)
         {
@@ -25,16 +25,16 @@ template ValueTransformers(T, alias D) if (isCallable!D)
     }
 }
 
-template isValueTransformers(T)
+template isValueTransformer(T)
 {
-    enum bool isValueTransformers = (is(T: IValueTransformer!(T), T));
+    enum bool isValueTransformer = (is(T: IValueTransformer!(T), T));
 }
 
 template getValueTransformers(T...)
 {
     private template getValueTransformersImpl(size_t idx) {
         static if (idx < T.length) {
-            static if (isValueTransformers!(T[idx]))
+            static if (isValueTransformer!(T[idx]))
                 alias getValueTransformersImpl = AliasSeq!(T[idx], getValueTransformersImpl!(idx + 1));
             else
                 alias getValueTransformersImpl = getValueTransformersImpl!(idx + 1); // continue searching
@@ -89,9 +89,10 @@ unittest
         }
     }
 
-    auto am = new AutoMapper!(
+    auto am = MapperConfiguration!(
         CreateMap!(A, B),
-        ValueTransformers!StringTransformer);
+        ValueTransformer!StringTransformer)
+            .createMapper();
 
     A a = new A();
     B b = am.map!B(a);

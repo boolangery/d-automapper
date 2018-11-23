@@ -47,9 +47,10 @@ void main()
 {
     // create a compile-time generated mapper to map from Order to OrderDTO,
     // and from OrderDTO to Order.
-    auto mapper = new AutoMapper!(
+    auto mapper = MapperConfiguration!(
         CreateMap!(Order, OrderDTO)
-            .ReverseMap!());
+            .ReverseMap!())
+            .createMapper();
 
     auto initial = makeOrder();
     auto dto     = mapper.map!OrderDTO(initial); // map Order to OrderDTO

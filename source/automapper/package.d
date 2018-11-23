@@ -78,13 +78,81 @@ import automapper.mapper;
 import automapper.type.converter;
 import automapper.value.transformer;
 
+/**
+    Define AutoMapper configuration.
+*/
+class MapperConfiguration(C...) if (allSatisfy!(isConfigurationObject, C))
+{
+    // sort configuration object
+    private alias ObjectMappers = getMappers!(C);
+    alias TypesConverters = getTypeConverters!(C);
+    alias ValueTransformers = getValueTransformers!(C);
+    // Generate reversed mapper and complete them too
+    alias FullObjectMappers = AliasSeq!(ObjectMappers, generateReversedMapper!ObjectMappers);
+
+    static auto createMapper()
+    {
+        return new AutoMapper!(typeof(this))();
+    }
+}
+
+///
+unittest
+{
+    import std.datetime;
+
+    static class Address {
+        long zipcode = 42420;
+        string city = "London";
+    }
+
+    static class User {
+        Address address = new Address();
+        string name = "Foo";
+        string lastName = "Bar";
+        string mail = "foo.bar@baz.fr";
+        long timestamp;
+    }
+
+    static class UserDTO {
+        string fullName;
+        string email;
+        string addressCity;
+        long   addressZipcode;
+        SysTime timestamp;
+        int context;
+    }
+
+    alias MyConfig = MapperConfiguration!(
+        // create a type converter for a long to SysTime
+        CreateMap!(long, SysTime)
+            .ConvertUsing!((long ts) => SysTime(ts)),
+        // create a mapping for User to UserDTO
+        CreateMap!(User, UserDTO,
+            // map member using a delegate
+            ForMember!("fullName", (User a) => a.name ~ " " ~ a.lastName ),
+            // map UserDTO.email to User.mail
+            ForMember!("email", "mail"),
+            // ignore UserDTO.context
+            Ignore!"context"));
+            // other member are automatically mapped
+
+    auto am = MyConfig.createMapper();
+
+    auto user = new User();
+    UserDTO dto = am.map!UserDTO(user);
+
+    assert(dto.fullName == user.name ~ " " ~ user.lastName);
+    assert(dto.addressCity == user.address.city);
+    assert(dto.addressZipcode == user.address.zipcode);
+}
 
 package template isConfigurationObject(T)
 {
     enum bool isConfigurationObject = (
         isObjectMapper!T ||
         isTypeConverter!T ||
-        isValueTransformers!T);
+        isValueTransformer!T);
 }
 
 template CreateMap(A, B, M...)
@@ -144,10 +212,11 @@ unittest
         int baz;
     }
 
-   auto am = new AutoMapper!(
+   auto am = MapperConfiguration!(
         CreateMap!(A, B,
             ForMember!("qux", "foo"),
-            ForMember!("baz", "foo")));
+            ForMember!("baz", "foo")))
+                .createMapper();
 }
 
 ///
@@ -163,10 +232,11 @@ unittest
         SysTime timestamp;
     }
 
-    auto am = new AutoMapper!(
+    auto am = MapperConfiguration!(
         CreateMap!(long, SysTime)
             .ConvertUsing!((long ts) => SysTime(ts)),
-        CreateMap!(A, B));
+        CreateMap!(A, B))
+            .createMapper();
 }
 
 /// Compile-time trick to override MustBeReversed enum.
@@ -315,21 +385,17 @@ private template getTypeConverters(Mappers...)
 
     Used to create zero runtime overhead mapper for object or struct.
 */
-class AutoMapper(Mappers...)
+class AutoMapper(MC) if (is(MC : MapperConfiguration!(C), C))
 {
     import std.algorithm : canFind;
     import std.format;
 
 private:
-    static assert(allSatisfy!(isConfigurationObject, Mappers), "Invalid template arguements.");
-
     // sort mapper by type
-    alias ObjectMappers = getMappers!(Mappers);
-    alias TypesConverters = getTypeConverters!(Mappers);
-    private alias _ValueTransformers = getValueTransformers!(Mappers);
-
+    private alias TypesConverters = MC.TypesConverters;
+    private alias ValueTransformers = MC.ValueTransformers;
     // Generate reversed mapper and complete them too
-    alias FullMappers = AliasSeq!(ObjectMappers, generateReversedMapper!ObjectMappers);
+    private alias FullMappers = MC.FullObjectMappers;
 
     // debug pragma(msg, "FullMappers: " ~ Mappers.stringof);
     // Find the right mapper in the FullMappers.
@@ -391,7 +457,7 @@ private:
     }
 
     // declare private registered IValueTransformer
-    static foreach (Trans; _ValueTransformers) {
+    static foreach (Trans; ValueTransformers) {
         static if (is(Trans : IValueTransformer!TValue, TValue)) {
             mixin(q{private IValueTransformer!TValue %s; }.format(
                 uniqueTransformerIdentifier!TValue));
@@ -407,7 +473,7 @@ public:
                 mixin(q{%s = new Conv(); }.format(uniqueConverterIdentifier!(A, B)));
 
         // instanciate registered IValueTransformer
-        static foreach (Trans; _ValueTransformers)
+        static foreach (Trans; ValueTransformers)
             static if (is(Trans : IValueTransformer!TValue, TValue))
                 mixin(q{%s = new Trans(); }.format(uniqueTransformerIdentifier!TValue));
     }
@@ -457,7 +523,7 @@ public:
 
     TValue transform(TValue)(TValue value)
     {
-        alias Transformer = getValueTransformer!(TValue, _ValueTransformers);
+        alias Transformer = getValueTransformer!(TValue, ValueTransformers);
 
         static if (is(Transformer == void)) {
             pragma(inline, true);
@@ -496,7 +562,7 @@ unittest
     }
 
     // we would like to map from User to UserDTO
-    auto am = new AutoMapper!(
+    auto am = MapperConfiguration!(
         // create a type converter for a long to SysTime
         CreateMap!(long, SysTime)
             .ConvertUsing!((long ts) => SysTime(ts)),
@@ -507,8 +573,9 @@ unittest
             // map UserDTO.email to User.mail
             ForMember!("email", "mail"),
             // ignore UserDTO.context
-            Ignore!"context"));
+            Ignore!"context"))
             // other member are automatically mapped
+            .createMapper();
 
     auto user = new User();
     UserDTO dto = am.map!UserDTO(user);
@@ -531,9 +598,10 @@ unittest
         SysTime timestamp;
     }
 
-    auto am_delegate = new AutoMapper!(
+    auto am_delegate = MapperConfiguration!(
         CreateMap!(long, SysTime).ConvertUsing!((long ts) => SysTime(ts)),
-        CreateMap!(A, B));
+        CreateMap!(A, B))
+            .createMapper();
 
     A a = new A();
     B b = am_delegate.map!B(a);
@@ -546,9 +614,10 @@ unittest
         }
     }
 
-    auto am_class = new AutoMapper!(
+    auto am_class = MapperConfiguration!(
         CreateMap!(long, SysTime).ConvertUsing!TimestampToSystime,
-        CreateMap!(A, B));
+        CreateMap!(A, B))
+            .createMapper();
 
     a = new A();
     b = am_class.map!B(a);
@@ -567,8 +636,9 @@ unittest
         int foo;
     }
 
-    auto am = new AutoMapper!(
-        CreateMap!(A, B));
+    auto am = MapperConfiguration!(
+        CreateMap!(A, B))
+            .createMapper();
 
     A a;
     B b = am.map!B(a);
@@ -590,9 +660,10 @@ unittest
         int addressZipcode = 74000;
     }
 
-    auto am = new AutoMapper!(
+    auto am = MapperConfiguration!(
         CreateMap!(A, B)
-            .ReverseMap!());
+            .ReverseMap!())
+            .createMapper();
 
     B b = new B();
     A a = am.map!A(b);
@@ -624,13 +695,15 @@ unittest
         DataDTO[] data;
     }
 
-    auto am = new AutoMapper!(
+    auto am = MapperConfiguration!(
         CreateMap!(Data, DataDTO),
-        CreateMap!(A, B));
+        CreateMap!(A, B))
+            .createMapper();
 
-    auto am2 = new AutoMapper!(
+    auto am2 = MapperConfiguration!(
         CreateMap!(Data, DataDTO),
-        CreateMap!(A, B));
+        CreateMap!(A, B))
+            .createMapper();
 
     A a = new A();
     B b = am.map!B(a);
@@ -661,9 +734,10 @@ unittest
         long   addressZipcode;
     }
 
-    auto am = new AutoMapper!(
+    auto am = MapperConfiguration!(
         CreateMap!(User, UserDTO,
-            ForMember!("fullName", (User a) => a.name ~ " " ~ a.lastName )));
+            ForMember!("fullName", (User a) => a.name ~ " " ~ a.lastName )))
+            .createMapper();
 
     auto user = new User();
     UserDTO dto = am.map!UserDTO(user);
@@ -689,9 +763,10 @@ unittest
         int addressZipcode;
     }
 
-    auto am = new AutoMapper!(
+    auto am = MapperConfiguration!(
         CreateMap!(A, B,
-            ForMember!("addressZipcode", "address.zipcode")));
+            ForMember!("addressZipcode", "address.zipcode")))
+        .createMapper();
 
     A a = new A();
     B b = am.map!B(a);
@@ -717,13 +792,14 @@ unittest
         AddressDTO address;
     }
 
-    auto am = new AutoMapper!(
+    auto am = MapperConfiguration!(
         CreateMap!(Address, AddressDTO,
             ForMember!("zipcode", "zipcode"))
                 .ReverseMap!(),
         CreateMap!(A, B,
             ForMember!("address", "address"))
-                .ReverseMap!());
+                .ReverseMap!())
+            .createMapper();
 
     A a = new A();
     B b = am.map!B(a);
@@ -747,14 +823,15 @@ unittest
         string mod;
     }
 
-   auto am = new AutoMapper!(
+   auto am = MapperConfiguration!(
         CreateMap!(A, B,
             ForMember!("str", "str"),
             ForMember!("foo", "foo"),
             Ignore!"bar",
             ForMember!("mod", (A a) {
                 return "modified";
-            })));
+            })))
+                .createMapper();
 
 
     A a = new A();

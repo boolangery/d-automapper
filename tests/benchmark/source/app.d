@@ -57,8 +57,9 @@ OrderDTO manualMap(Order o) {
 
 void main()
 {
-    auto am = new AutoMapper!(
+    alias Cfg = MapperConfiguration!(
         CreateMap!(Order, OrderDTO));
+    auto am = Cfg.createMapper();
 
     int a;
 

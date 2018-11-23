@@ -143,11 +143,12 @@ unittest
         long ts;
     }
 
-   auto am = new AutoMapper!(
+   auto am = MapperConfiguration!(
         CreateMap!(A, B,
             ForMember!("qux", "foo"),
             ForMember!("baz", "foo"),
-            ForMember!("ts", (A a) => 123456 )));
+            ForMember!("ts", (A a) => 123456 )))
+                .createMapper();
 }
 
 
@@ -188,11 +189,12 @@ unittest
         long ts;
     }
 
-   auto am = new AutoMapper!(
+   auto am = MapperConfiguration!(
         CreateMap!(A, B,
             ForMember!("qux", "foo"),
             ForMember!("baz", "foo"),
-            Ignore!("ts")));
+            Ignore!("ts")))
+                .createMapper();
 }
 
 
