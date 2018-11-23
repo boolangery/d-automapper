@@ -76,12 +76,15 @@ module automapper;
 import automapper.meta;
 import automapper.mapper;
 import automapper.type.converter;
+import automapper.value.transformer;
 
 
-
-package template isObjectMapperOrTypeConverter(T)
+package template isConfigurationObject(T)
 {
-    enum bool isObjectMapperOrTypeConverter = (isObjectMapper!T || isTypeConverter!T);
+    enum bool isConfigurationObject = (
+        isObjectMapper!T ||
+        isTypeConverter!T ||
+        isValueTransformers!T);
 }
 
 template CreateMap(A, B, M...)
@@ -318,18 +321,17 @@ class AutoMapper(Mappers...)
     import std.format;
 
 private:
-    static assert(allSatisfy!(isObjectMapperOrTypeConverter, Mappers), "Invalid template arguements.");
+    static assert(allSatisfy!(isConfigurationObject, Mappers), "Invalid template arguements.");
 
     // sort mapper by type
     alias ObjectMappers = getMappers!(Mappers);
     alias TypesConverters = getTypeConverters!(Mappers);
+    private alias _ValueTransformers = getValueTransformers!(Mappers);
 
-    // alias CompletedMappers = tryCompleteMappers!(ObjectMappers); // complete user mapping
     // Generate reversed mapper and complete them too
     alias FullMappers = AliasSeq!(ObjectMappers, generateReversedMapper!ObjectMappers);
 
     // debug pragma(msg, "FullMappers: " ~ Mappers.stringof);
-
     // Find the right mapper in the FullMappers.
     private template getMapperDefinition(A, B)
     {
@@ -368,17 +370,31 @@ private:
         alias getTypeConverter = getTypeConverterImpl!0;
     }
 
-    private template uniqueIdentifier(A, B)
+    private template uniqueConverterIdentifier(A, B)
     {
         import std.string : replace;
-        enum string uniqueIdentifier = (fullyQualifiedName!A ~ "_" ~ fullyQualifiedName!B).replace(".", "_");
+        enum string uniqueConverterIdentifier = ("conv_" ~ fullyQualifiedName!A ~ "_" ~ fullyQualifiedName!B).replace(".", "_");
     }
 
     // declare private registered ITypeConverter
     static foreach (Conv; TypesConverters) {
         static if (is(Conv : ITypeConverter!(A, B), A, B)) {
             mixin(q{private ITypeConverter!(A, B) %s; }.format(
-                uniqueIdentifier!(A, B)));
+                uniqueConverterIdentifier!(A, B)));
+        }
+    }
+
+    private template uniqueTransformerIdentifier(A)
+    {
+        import std.string : replace;
+        enum string uniqueTransformerIdentifier = ("trans" ~ fullyQualifiedName!A).replace(".", "_");
+    }
+
+    // declare private registered IValueTransformer
+    static foreach (Trans; _ValueTransformers) {
+        static if (is(Trans : IValueTransformer!TValue, TValue)) {
+            mixin(q{private IValueTransformer!TValue %s; }.format(
+                uniqueTransformerIdentifier!TValue));
         }
     }
 
@@ -386,9 +402,14 @@ public:
     this()
     {
         // instanciate registered ITypeConverter
-        static foreach (Conv; TypesConverters) {
-            mixin(q{%s = new Conv(); }.format(uniqueIdentifier!(A, B)));
-        }
+        static foreach (Conv; TypesConverters)
+            static if (is(Conv : ITypeConverter!(A, B), A, B))
+                mixin(q{%s = new Conv(); }.format(uniqueConverterIdentifier!(A, B)));
+
+        // instanciate registered IValueTransformer
+        static foreach (Trans; _ValueTransformers)
+            static if (is(Trans : IValueTransformer!TValue, TValue))
+                mixin(q{%s = new Trans(); }.format(uniqueTransformerIdentifier!TValue));
     }
 
     /**
@@ -430,9 +451,20 @@ public:
 
         static if (is(M == void))
             static assert(false, "No type converter found for mapping from " ~ A.stringof ~ " to " ~ B.stringof);
-        else {
-            return __traits(getMember, this, uniqueIdentifier!(A, B)).convert(a);
+        else
+            return __traits(getMember, this, uniqueConverterIdentifier!(A, B)).convert(a);
+    }
+
+    TValue transform(TValue)(TValue value)
+    {
+        alias Transformer = getValueTransformer!(TValue, _ValueTransformers);
+
+        static if (is(Transformer == void)) {
+            pragma(inline, true);
+            return value;
         }
+        else
+            return __traits(getMember, this, uniqueTransformerIdentifier!TValue).transform(value);
     }
 }
 
@@ -499,20 +531,27 @@ unittest
         SysTime timestamp;
     }
 
+    auto am_delegate = new AutoMapper!(
+        CreateMap!(long, SysTime).ConvertUsing!((long ts) => SysTime(ts)),
+        CreateMap!(A, B));
+
+    A a = new A();
+    B b = am_delegate.map!B(a);
+    assert(SysTime(a.timestamp) == b.timestamp);
+
+
     static class TimestampToSystime : ITypeConverter!(long, SysTime) {
         override SysTime convert(long ts) {
             return SysTime(ts);
         }
     }
 
-    auto am = new AutoMapper!(
+    auto am_class = new AutoMapper!(
         CreateMap!(long, SysTime).ConvertUsing!TimestampToSystime,
         CreateMap!(A, B));
 
-
-    A a = new A();
-    B b = am.map!B(a);
-
+    a = new A();
+    b = am_class.map!B(a);
     assert(SysTime(a.timestamp) == b.timestamp);
 }
 

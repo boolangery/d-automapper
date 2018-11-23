@@ -53,7 +53,7 @@ package class ObjectMapper(F, T, M...)
 
                     // same type
                     static if (is(MemberType!(B, Mapping.MapTo) == MemberType!(A, Mapping.Action))) {
-                        mixin(GetMember!(b, Mapping.MapTo)) = mixin(GetMember!(a, Mapping.Action)); // b.member = a. member;
+                        mixin(GetMember!(b, Mapping.MapTo)) = am.transform(mixin(GetMember!(a, Mapping.Action))); // b.member = a. member;
                     }
                     // different type: map
                     else {
