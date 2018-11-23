@@ -9,6 +9,11 @@ interface ITypeConverter(TSource, TDest)
     TDest convert(TSource source);
 }
 
+template isTypeConverter(T)
+{
+    enum bool isTypeConverter = (is(T: ITypeConverter!(F, T), F, T));
+}
+
 abstract class DelegateTypeConverter(TSource, TDest, alias Delegate) : ITypeConverter!(TSource, TDest)
 {
     alias A = TSource;
@@ -19,9 +24,4 @@ abstract class DelegateTypeConverter(TSource, TDest, alias Delegate) : ITypeConv
     {
         return Delegate(source);
     }
-}
-
-template isTypeConverter(T)
-{
-    enum bool isTypeConverter = (is(T: ITypeConverter!(F, T), F, T));
 }

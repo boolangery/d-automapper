@@ -106,9 +106,8 @@ template CreateMap(A, B, M...)
     }
     // it's a type converter
     else static if (M.length is 0) {
-        template ConvertUsing(alias Delegate)
+        template ConvertUsing(alias Delegate) if (isCallable!Delegate)
         {
-            static assert(isCallable!Delegate, "must be a callable");
             static assert(is(ReturnType!Delegate == B), "must return a " ~ B.stringof);
             static assert((Parameters!Delegate.length == 1) && is(Parameters!Delegate[0] == A), "must take one argument of type " ~ A.stringof);
 
@@ -116,6 +115,11 @@ template CreateMap(A, B, M...)
             {
 
             }
+        }
+
+        template ConvertUsing(Type) if (isTypeConverter!Type)
+        {
+            alias ConvertUsing = Type;
         }
     }
     else
@@ -311,13 +315,14 @@ private template getTypeConverters(Mappers...)
 class AutoMapper(Mappers...)
 {
     import std.algorithm : canFind;
+    import std.format;
 
 private:
     static assert(allSatisfy!(isObjectMapperOrTypeConverter, Mappers), "Invalid template arguements.");
 
     // sort mapper by type
     alias ObjectMappers = getMappers!(Mappers);
-    alias TypesConverters    = getTypeConverters!(Mappers);
+    alias TypesConverters = getTypeConverters!(Mappers);
 
     // alias CompletedMappers = tryCompleteMappers!(ObjectMappers); // complete user mapping
     // Generate reversed mapper and complete them too
@@ -363,7 +368,29 @@ private:
         alias getTypeConverter = getTypeConverterImpl!0;
     }
 
+    private template uniqueIdentifier(A, B)
+    {
+        import std.string : replace;
+        enum string uniqueIdentifier = (fullyQualifiedName!A ~ "_" ~ fullyQualifiedName!B).replace(".", "_");
+    }
+
+    // declare private registered ITypeConverter
+    static foreach (Conv; TypesConverters) {
+        static if (is(Conv : ITypeConverter!(A, B), A, B)) {
+            mixin(q{private ITypeConverter!(A, B) %s; }.format(
+                uniqueIdentifier!(A, B)));
+        }
+    }
+
 public:
+    this()
+    {
+        // instanciate registered ITypeConverter
+        static foreach (Conv; TypesConverters) {
+            mixin(q{%s = new Conv(); }.format(uniqueIdentifier!(A, B)));
+        }
+    }
+
     /**
         Map a type to another type.
         Params:
@@ -404,7 +431,7 @@ public:
         static if (is(M == void))
             static assert(false, "No type converter found for mapping from " ~ A.stringof ~ " to " ~ B.stringof);
         else {
-            return new M().convert(a);
+            return __traits(getMember, this, uniqueIdentifier!(A, B)).convert(a);
         }
     }
 }
@@ -472,8 +499,14 @@ unittest
         SysTime timestamp;
     }
 
+    static class TimestampToSystime : ITypeConverter!(long, SysTime) {
+        override SysTime convert(long ts) {
+            return SysTime(ts);
+        }
+    }
+
     auto am = new AutoMapper!(
-        CreateMap!(long, SysTime).ConvertUsing!((long ts) => SysTime(ts)),
+        CreateMap!(long, SysTime).ConvertUsing!TimestampToSystime,
         CreateMap!(A, B));
 
 
