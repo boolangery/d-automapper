@@ -74,6 +74,8 @@
 module automapper;
 
 import automapper.meta;
+import automapper.mapper;
+
 
 /// Base class for custom mapping.
 private class CustomMapping
@@ -209,31 +211,9 @@ private template buildMappedMemberList(Mappings...) if (allSatisfy!(isCustomMapp
     enum string[] buildMappedMemberList = buildMappedMemberListImpl!0;
 }
 
-/// Define mapper type
-private enum MapperType
-{
-    classStruct, /// map between object
-    typeConverter /// map between type
-}
-
-/**
-    Used to create a new mapper definition in AutoMapper.
-    Template_Params:
-        F = The type to map from
-        T = The type to map to
-        M = A list of CustomMapping (ForMember, Ignore...) or a delegate to define
-            a type converter
-**/
-private abstract class Mapper(F, T, MapperType TP)
-{
-    alias A = F;
-    alias B = T;
-    enum Type = TP;
-}
-
 private template isMapper(T)
 {
-    enum bool isMapper = (is(T: Mapper!(F, T, TP), F, T, MapperType TP));
+    enum bool isMapper = (is(T: Mapper!(F, T), F, T));
 }
 
 private abstract class TypeConverter(F, T, alias Delegate)
@@ -241,7 +221,6 @@ private abstract class TypeConverter(F, T, alias Delegate)
     alias A = F;
     alias B = T;
     alias D = Delegate;
-    enum Type = MapperType.typeConverter;
 }
 
 private template isTypeConverter(T)
@@ -258,14 +237,14 @@ template CreateMap(F, T, M...)
 {
     // it's a class or struct mapper
     static if (isClassOrStruct!F && isClassOrStruct!T && allSatisfy!(isCustomMapping, M)) {
-        alias class CreateMap : Mapper!(F, T, MapperType.classStruct)
+        alias class CreateMap : Mapper!(F, T)
         {
             alias Mappings = AliasSeq!M;
             enum bool MustBeReversed = false;
 
             template ReverseMap()
             {
-                alias class ReverseMap : Mapper!(F, T, MapperType.classStruct)
+                alias class ReverseMap : Mapper!(F, T)
                 {
                     alias Mappings = AliasSeq!M;
                     enum bool MustBeReversed = true;
@@ -466,7 +445,7 @@ private template completeMappers(Mappers...) if (allSatisfy!(isMapper, Mappers))
 }
 
 /// Filter Mappers list to return only mapper that match MapperType.
-private template getMappersByType(MapperType Type, Mappers...) if (allSatisfy!(isMapper, Mappers))
+private template getMappersByType(Mappers...) if (allSatisfy!(isMapper, Mappers))
 {
     private template getMappersByTypeImpl(size_t idx) {
         static if (idx < Mappers.length) {
