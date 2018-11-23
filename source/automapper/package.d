@@ -75,21 +75,11 @@ module automapper;
 
 import automapper.meta;
 import automapper.mapper;
+import automapper.type.converter;
 
 
-private abstract class TypeConverter(F, T, alias Delegate)
-{
-    alias A = F;
-    alias B = T;
-    alias D = Delegate;
-}
 
-private template isTypeConverter(T)
-{
-    enum bool isTypeConverter = (is(T: TypeConverter!(F, T, D), F, T, alias D));
-}
-
-private template isObjectMapperOrTypeConverter(T)
+package template isObjectMapperOrTypeConverter(T)
 {
     enum bool isObjectMapperOrTypeConverter = (isObjectMapper!T || isTypeConverter!T);
 }
@@ -122,7 +112,7 @@ template CreateMap(A, B, M...)
             static assert(is(ReturnType!Delegate == B), "must return a " ~ B.stringof);
             static assert((Parameters!Delegate.length == 1) && is(Parameters!Delegate[0] == A), "must take one argument of type " ~ A.stringof);
 
-            alias static class ConvertUsing : TypeConverter!(A, B, Delegate)
+            alias static class ConvertUsing : DelegateTypeConverter!(A, B, Delegate)
             {
 
             }
@@ -361,7 +351,7 @@ private:
         private template getTypeConverterImpl(size_t idx) {
             static if (idx < TypesConverters.length) {
                 alias M = TypesConverters[idx];
-                static if (is(M : TypeConverter!(A, B, D), alias D))
+                static if (is(M : ITypeConverter!(A, B)))
                     alias getTypeConverterImpl = M;
                 else
                     alias getTypeConverterImpl = getTypeConverterImpl!(idx + 1); // continue searching
@@ -389,73 +379,6 @@ public:
             static assert(false, "No mapper found for mapping from " ~ A.stringof ~ " to " ~ B.stringof);
         else
             return M.map(a, this);
-
-        /*
-        static if (isClass!B)
-            B b = new B();
-        else
-            B b;
-
-        alias M = getMapperDefinition!(A, B);
-
-        static if (is(M == void))
-            static assert(false, "No mapper found for mapping from " ~ A.stringof ~ " to " ~ B.stringof);
-        else {
-            // auto complete mappping
-            alias AutoMapping = M.Mappings;//tryAutoMapUnmappedMembers!(A, B, M.Mappings);
-
-            // warn about un-mapped members in B
-            static foreach(member; ClassMembers!B) {
-                static if (!listMappedObjectMember!(AutoMapping).canFind(member)) {
-                    static assert(false, "non mapped member in destination object '" ~ B.stringof ~"." ~ member ~ "'");
-                }
-            }
-
-            // instanciate class member
-            static foreach(member; ClassMembers!B) {
-                static if (isClass!(MemberType!(B, member))) {
-                    __traits(getMember, b, member) = new MemberType!(B, member);
-                }
-            }
-
-            // generate mapping code
-            static foreach(Mapping; AutoMapping) {
-                static if (isObjectMemberMapping!Mapping) {
-                    static assert(hasNestedMember!(B, Mapping.MapTo), Mapping.MapTo ~ " is not a member of " ~ B.stringof);
-
-                    // ForMember - mapMember
-                    static if (isForMember!(Mapping, ForMemberType.mapMember)) {
-                        static assert(hasNestedMember!(A, Mapping.Action), Mapping.Action ~ " is not a member of " ~ A.stringof);
-
-                        // same type
-                        static if (is(MemberType!(B, Mapping.MapTo) == MemberType!(A, Mapping.Action))) {
-                            mixin(GetMember!(b, Mapping.MapTo)) = mixin(GetMember!(a, Mapping.Action)); // b.member = a. member;
-                        }
-                        // different type: map
-                        else {
-                            __traits(getMember, b, Mapping.MapTo) = this.map!(
-                                MemberType!(B, Mapping.MapTo),
-                                MemberType!(A, Mapping.Action))(__traits(getMember, a, Mapping.Action)); // b.member = context.map(a.member);
-                        }
-                    }
-                    // ForMember - mapDelegate
-                    else static if (isForMember!(Mapping, ForMemberType.mapDelegate)) {
-                        // static assert return type
-                        static assert(is(ReturnType!(Mapping.Action) == MemberType!(B, Mapping.MapTo)),
-                            "the func in " ~ ForMember.stringof ~ " must return a '" ~
-                            MemberType!(B, Mapping.MapTo).stringof ~ "' like " ~ B.stringof ~
-                            "." ~ Mapping.MapTo);
-                        // static assert parameters
-                        static assert(Parameters!(Mapping.Action).length is 1 && is(Parameters!(Mapping.Action)[0] == A),
-                            "the func in " ~ ForMember.stringof ~ " must take a value of type '" ~ A.stringof ~"'");
-                        __traits(getMember, b, Mapping.MapTo) = Mapping.Action(a);
-                    }
-                }
-            }
-        }
-
-        return b;
-        */
     }
 
     /// ditto
@@ -481,7 +404,7 @@ public:
         static if (is(M == void))
             static assert(false, "No type converter found for mapping from " ~ A.stringof ~ " to " ~ B.stringof);
         else {
-            return M.D(a);
+            return new M().convert(a);
         }
     }
 }
