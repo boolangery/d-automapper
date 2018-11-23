@@ -224,25 +224,48 @@ private enum MapperType
         M = A list of CustomMapping (ForMember, Ignore...) or a delegate to define
             a type converter
 **/
-private abstract class CreateMapBase(F, T, MapperType TP)
+private abstract class Mapper(F, T, MapperType TP)
 {
     alias A = F;
     alias B = T;
     enum Type = TP;
 }
 
+private template isMapper(T)
+{
+    enum bool isMapper = (is(T: Mapper!(F, T, TP), F, T, MapperType TP));
+}
+
+private abstract class TypeConverter(F, T, alias Delegate)
+{
+    alias A = F;
+    alias B = T;
+    alias D = Delegate;
+    enum Type = MapperType.typeConverter;
+}
+
+private template isTypeConverter(T)
+{
+    enum bool isTypeConverter = (is(T: TypeConverter!(F, T, D), F, T, alias D));
+}
+
+private template isMapperOrTypeConverter(T)
+{
+    enum bool isMapperOrTypeConverter = (isMapper!T || isTypeConverter!T);
+}
+
 template CreateMap(F, T, M...)
 {
     // it's a class or struct mapper
     static if (isClassOrStruct!F && isClassOrStruct!T && allSatisfy!(isCustomMapping, M)) {
-        alias class CreateMap : CreateMapBase!(F, T, MapperType.classStruct)
+        alias class CreateMap : Mapper!(F, T, MapperType.classStruct)
         {
             alias Mappings = AliasSeq!M;
             enum bool MustBeReversed = false;
 
             template ReverseMap()
             {
-                alias class ReverseMap : CreateMapBase!(F, T, MapperType.classStruct)
+                alias class ReverseMap : Mapper!(F, T, MapperType.classStruct)
                 {
                     alias Mappings = AliasSeq!M;
                     enum bool MustBeReversed = true;
@@ -252,11 +275,17 @@ template CreateMap(F, T, M...)
         }
     }
     // it's a type converter
-    else static if (M.length == 1 && isDelegateWithRtParam!(M[0], F, T)) {
-        alias class CreateMap : CreateMapBase!(F, T, MapperType.typeConverter)
+    else static if (M.length is 0) {
+        template ConvertUsing(alias Delegate)
         {
-            alias Mappings = M[0];
-            enum bool MustBeReversed = false;
+            static assert(isCallable!Delegate, "must be a callable");
+            static assert(is(ReturnType!Delegate == T), "must return a " ~ T.stringof);
+            static assert((Parameters!Delegate.length == 1) && is(Parameters!Delegate[0] == F), "must take one argument of type " ~ F.stringof);
+
+            alias class ConvertUsing : TypeConverter!(F, T, Delegate)
+            {
+
+            }
         }
     }
     else
@@ -298,8 +327,8 @@ unittest
     }
 
     auto am = new AutoMapper!(
-        CreateMap!(long, SysTime,
-            (long ts) => SysTime(ts)),
+        CreateMap!(long, SysTime)
+            .ConvertUsing!((long ts) => SysTime(ts)),
         CreateMap!(A, B));
 }
 
@@ -316,11 +345,6 @@ unittest
     static assert(!CreateMap!(A, A).MustBeReversed);
 }
 
-/// Is the provided template a Mapper ?
-private template isMapperDefinition(T)
-{
-    enum bool isMapperDefinition = (is(T: CreateMapBase!(F, T, TP), F, T, MapperType TP));
-}
 
 unittest
 {
@@ -328,9 +352,7 @@ unittest
     class B {}
     struct C {}
 
-    static assert(isMapperDefinition!(CreateMap!(A, B)));
-    static assert(isMapperDefinition!(CreateMap!(long, int, (long l) => 42)));
-    static assert(isMapperDefinition!(CreateMap!(long, C, (long l) => C())));
+    static assert(isMapper!(CreateMap!(A, B)));
 }
 
 /**
@@ -379,7 +401,7 @@ private template completeUserMapping(A, B, Mappings...) if (allSatisfy!(isCustom
     It take a list of Mapper, and return a new list of reversed mapper if needed.
     e.g. for CreateMap!(A, B, ForMember("foo", "bar")), it create CreateMap!(B, A, ForMember("bar", "foo")
 */
-private template generateReversedMapper(Mappers...) if (allSatisfy!(isMapperDefinition, Mappers))
+private template generateReversedMapper(Mappers...) if (allSatisfy!(isMapper, Mappers))
 {
     private template generateReversedMapperImpl(size_t idx) {
         static if (idx < Mappers.length) {
@@ -421,7 +443,7 @@ private template generateReversedMapper(Mappers...) if (allSatisfy!(isMapperDefi
     Params:
         Mappers = list of Mapper
 */
-private template completeMappers(Mappers...) if (allSatisfy!(isMapperDefinition, Mappers))
+private template completeMappers(Mappers...) if (allSatisfy!(isMapper, Mappers))
 {
     private template completeMappersImpl(size_t idx) {
         static if (idx < Mappers.length) {
@@ -444,7 +466,7 @@ private template completeMappers(Mappers...) if (allSatisfy!(isMapperDefinition,
 }
 
 /// Filter Mappers list to return only mapper that match MapperType.
-private template getMappersByType(MapperType Type, Mappers...) if (allSatisfy!(isMapperDefinition, Mappers))
+private template getMappersByType(MapperType Type, Mappers...) if (allSatisfy!(isMapper, Mappers))
 {
     private template getMappersByTypeImpl(size_t idx) {
         static if (idx < Mappers.length) {
@@ -460,6 +482,38 @@ private template getMappersByType(MapperType Type, Mappers...) if (allSatisfy!(i
     alias getMappersByType = getMappersByTypeImpl!0;
 }
 
+private template getMappers(Mappers...)
+{
+    private template getMappersImpl(size_t idx) {
+        static if (idx < Mappers.length) {
+            static if (isMapper!(Mappers[idx]))
+                alias getMappersImpl = AliasSeq!(Mappers[idx], getMappersImpl!(idx + 1));
+            else
+                alias getMappersImpl = getMappersImpl!(idx + 1);
+        }
+        else
+            alias getMappersImpl = AliasSeq!();
+    }
+
+    alias getMappers = getMappersImpl!0;
+}
+
+private template getTypeConverters(Mappers...)
+{
+    private template getTypeConvertersImpl(size_t idx) {
+        static if (idx < Mappers.length) {
+            static if (isTypeConverter!(Mappers[idx]))
+                alias getTypeConvertersImpl = AliasSeq!(Mappers[idx], getTypeConvertersImpl!(idx + 1));
+            else
+                alias getTypeConvertersImpl = getTypeConvertersImpl!(idx + 1);
+        }
+        else
+            alias getTypeConvertersImpl = AliasSeq!();
+    }
+
+    alias getTypeConverters = getTypeConvertersImpl!0;
+}
+
 /**
     AutoMapper entry point.
 
@@ -470,11 +524,11 @@ class AutoMapper(Mappers...)
     import std.algorithm : canFind;
 
 private:
-    static assert(allSatisfy!(isMapperDefinition, Mappers), "Invalid template arguements.");
+    static assert(allSatisfy!(isMapperOrTypeConverter, Mappers), "Invalid template arguements.");
 
     // sort mapper by type
-    alias ClassStructMappers = getMappersByType!(MapperType.classStruct, Mappers);
-    alias TypesConverters    = getMappersByType!(MapperType.typeConverter, Mappers);
+    alias ClassStructMappers = getMappers!(Mappers);
+    alias TypesConverters    = getTypeConverters!(Mappers);
 
     alias CompletedMappers = completeMappers!(ClassStructMappers); // complete user mapping
     // Generate reversed mapper and complete them too
@@ -508,7 +562,7 @@ private:
         private template getTypeConverterImpl(size_t idx) {
             static if (idx < TypesConverters.length) {
                 alias M = TypesConverters[idx];
-                static if (is(M : CreateMap!(A, B, D), alias D))
+                static if (is(M : TypeConverter!(A, B, D), alias D))
                     alias getTypeConverterImpl = M;
                 else
                     alias getTypeConverterImpl = getTypeConverterImpl!(idx + 1); // continue searching
@@ -617,10 +671,9 @@ public:
         alias M = getTypeConverter!(A, B);
 
         static if (is(M == void))
-            static assert(false, "No type converter found for mapping from " ~ A.stringof ~ " to " ~ B.stringof ~ ". Register it with \"" ~
-                CreateMap!(A, B, (A a) => B.init).stringof ~ "\" for example.");
+            static assert(false, "No type converter found for mapping from " ~ A.stringof ~ " to " ~ B.stringof);
         else {
-            return M.Mappings(a);
+            return M.D(a);
         }
     }
 }
@@ -655,8 +708,8 @@ unittest
     // we would like to map from User to UserDTO
     auto am = new AutoMapper!(
         // create a type converter for a long to SysTime
-        CreateMap!(long, SysTime,
-            (long ts) => SysTime(ts)),
+        CreateMap!(long, SysTime)
+            .ConvertUsing!((long ts) => SysTime(ts)),
         // create a mapping for User to UserDTO
         CreateMap!(User, UserDTO,
             // map member using a delegate
@@ -689,7 +742,7 @@ unittest
     }
 
     auto am = new AutoMapper!(
-        CreateMap!(long, SysTime, (long ts) => SysTime(ts)),
+        CreateMap!(long, SysTime).ConvertUsing!((long ts) => SysTime(ts)),
         CreateMap!(A, B));
 
 
