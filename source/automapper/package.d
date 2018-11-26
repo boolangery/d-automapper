@@ -74,11 +74,92 @@
 module automapper;
 
 import automapper.meta;
-public import automapper.mapper;
-import automapper.type.converter;
 import automapper.value.transformer;
 import automapper.naming;
 
+public import automapper.api;
+public import automapper.type.converter;
+public import automapper.mapper;
+
+
+/// Is the provided type a configuration object ?
+package template isConfigurationObject(T)
+{
+    enum bool isConfigurationObject = (
+        isObjectMapper!T ||
+        isTypeConverter!T ||
+        isValueTransformer!T);
+}
+
+/**
+    Define AutoMapper configuration.
+*/
+class MapperConfiguration(Configs...) if (allSatisfy!(isConfigurationObject, Configs))
+{
+    // sort configuration object
+    private alias ObjectMappers = Filter!(isObjectMapper, Configs);
+    alias TypesConverters = Filter!(isTypeConverter, Configs);
+    alias ValueTransformers = Filter!(isValueTransformer, Configs);
+    // Add reversed mapper to user mapper
+    alias FullObjectMappers = AliasSeq!(ObjectMappers, generateReversedMapper!ObjectMappers);
+
+    static auto createMapper()
+    {
+        import automapper;
+        return new AutoMapper!(typeof(this))();
+    }
+}
+
+///
+unittest
+{
+    import std.datetime;
+
+    static class Address {
+        long zipcode = 42420;
+        string city = "London";
+    }
+
+    static class User {
+        Address address = new Address();
+        string name = "Foo";
+        string lastName = "Bar";
+        string mail = "foo.bar@baz.fr";
+        long timestamp;
+    }
+
+    static class UserDTO {
+        string fullName;
+        string email;
+        string addressCity;
+        long   addressZipcode;
+        SysTime timestamp;
+        int context;
+    }
+
+    alias MyConfig = MapperConfiguration!(
+        // create a type converter for a long to SysTime
+        CreateMap!(long, SysTime)
+            .ConvertUsing!((long ts) => SysTime(ts)),
+        // create a mapping for User to UserDTO
+        CreateMap!(User, UserDTO)
+            // map member using a delegate
+            .ForMember!("fullName", (User a) => a.name ~ " " ~ a.lastName )
+            // map UserDTO.email to User.mail
+            .ForMember!("email", "mail")
+            // ignore UserDTO.context
+            .Ignore!"context");
+            // other member are automatically mapped
+
+    auto am = MyConfig.createMapper();
+
+    auto user = new User();
+    UserDTO dto = am.map!UserDTO(user);
+
+    assert(dto.fullName == user.name ~ " " ~ user.lastName);
+    assert(dto.addressCity == user.address.city);
+    assert(dto.addressZipcode == user.address.zipcode);
+}
 
 /**
     AutoMapper entry point.
@@ -87,54 +168,13 @@ import automapper.naming;
 */
 class AutoMapper(MC) if (is(MC : MapperConfiguration!(C), C))
 {
-    import std.algorithm : canFind;
     import std.format;
 
 private:
-    // sort mapper by type
     private alias TypesConverters = MC.TypesConverters;
     private alias ValueTransformers = MC.ValueTransformers;
-    // Generate reversed mapper and complete them too
     private alias FullMappers = MC.FullObjectMappers;
-
     // debug pragma(msg, "FullMappers: " ~ Mappers.stringof);
-    // Find the right mapper in the FullMappers.
-    private template getMapperDefinition(A, B)
-    {
-        private template getMapperDefinitionImpl(size_t idx) {
-            static if (idx < FullMappers.length) {
-                alias M = FullMappers[idx];
-                static if (is(M : ObjectMapper!(A, B, C), C)) // Mapper without mapping
-                    alias getMapperDefinitionImpl = M;
-                else static if (is(M : ObjectMapper!(A, B, C, T), C, T)) // Mapper with mapping
-                    alias getMapperDefinitionImpl = M;
-                else
-                    alias getMapperDefinitionImpl = getMapperDefinitionImpl!(idx + 1); // continue searching
-            }
-            else
-                alias getMapperDefinitionImpl = void; // not found
-        }
-
-        alias getMapperDefinition = getMapperDefinitionImpl!0;
-    }
-
-    // Find the type converter in the TypesConverters.
-    private template getTypeConverter(A, B)
-    {
-        private template getTypeConverterImpl(size_t idx) {
-            static if (idx < TypesConverters.length) {
-                alias M = TypesConverters[idx];
-                static if (is(M : ITypeConverter!(A, B)))
-                    alias getTypeConverterImpl = M;
-                else
-                    alias getTypeConverterImpl = getTypeConverterImpl!(idx + 1); // continue searching
-            }
-            else
-                alias getTypeConverterImpl = void; // not found
-        }
-
-        alias getTypeConverter = getTypeConverterImpl!0;
-    }
 
     private template uniqueConverterIdentifier(A, B)
     {
@@ -187,12 +227,17 @@ public:
     */
     B map(B, A)(A a) if (isClassOrStruct!A && isClassOrStruct!B)
     {
-        alias M = getMapperDefinition!(A, B);
+        template isRightMapper(T) {
+            enum bool isRightMapper = (is(T : ObjectMapper!(A, B, C), C) ||
+                is(T : ObjectMapper!(A, B, C, M), M));
+        }
 
-        static if (is(M == void))
+        alias M = Filter!(isRightMapper, FullMappers);
+
+        static if (M.length is 0)
             static assert(false, "No mapper found for mapping from " ~ A.stringof ~ " to " ~ B.stringof);
         else
-            return M.map(a, this);
+            return M[0].map(a, this);
     }
 
     /// ditto
@@ -213,9 +258,13 @@ public:
     /// ditto
     B map(B, A)(A a) if (!isArray!A && !isArray!B && (!isClassOrStruct!A || !isClassOrStruct!B))
     {
-        alias M = getTypeConverter!(A, B);
+        template isRightConverter(T) {
+            enum bool isRightConverter = is(T : ITypeConverter!(A, B));
+        }
 
-        static if (is(M == void))
+        alias M = Filter!(isRightConverter, TypesConverters);
+
+        static if (M.length is 0)
             static assert(false, "No type converter found for mapping from " ~ A.stringof ~ " to " ~ B.stringof);
         else
             return __traits(getMember, this, uniqueConverterIdentifier!(A, B)).convert(a);
@@ -223,9 +272,13 @@ public:
 
     TValue transform(TValue)(TValue value)
     {
-        alias Transformer = getValueTransformer!(TValue, ValueTransformers);
+        template isRightTransformer(T) {
+            enum bool isRightTransformer = is(T : IValueTransformer!(TValue));
+        }
 
-        static if (is(Transformer == void)) {
+        alias Transformer = Filter!(isRightTransformer, ValueTransformers);
+
+        static if (Transformer.length is 0) {
             pragma(inline, true);
             return value;
         }

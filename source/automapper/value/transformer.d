@@ -30,36 +30,9 @@ template isValueTransformer(T)
     enum bool isValueTransformer = (is(T: IValueTransformer!(T), T));
 }
 
-template getValueTransformers(T...)
+template isValueTransformerFor(For, T)
 {
-    private template getValueTransformersImpl(size_t idx) {
-        static if (idx < T.length) {
-            static if (isValueTransformer!(T[idx]))
-                alias getValueTransformersImpl = AliasSeq!(T[idx], getValueTransformersImpl!(idx + 1));
-            else
-                alias getValueTransformersImpl = getValueTransformersImpl!(idx + 1); // continue searching
-        }
-        else
-            alias getValueTransformersImpl = AliasSeq!(); // not found
-    }
-    alias getValueTransformers = getValueTransformersImpl!0;
-}
-
-/// Search for the right converter in a list
-template getValueTransformer(TValue, T...)
-{
-    private template getValueTransformerImpl(size_t idx) {
-        static if (idx < T.length) {
-            static if (is(T[idx] : IValueTransformer!(TValue)))
-                alias getValueTransformerImpl = T[idx];
-            else
-                alias getValueTransformerImpl = getValueTransformerImpl!(idx + 1); // continue searching
-        }
-        else
-            alias getValueTransformerImpl = void; // not found
-    }
-
-    alias getValueTransformer = getValueTransformerImpl!0;
+    enum bool isValueTransformer = (is(T: IValueTransformer!(For)));
 }
 
 ///

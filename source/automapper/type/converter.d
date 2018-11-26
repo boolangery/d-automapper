@@ -3,6 +3,8 @@
 */
 module automapper.type.converter;
 
+import automapper.meta;
+
 
 interface ITypeConverter(TSource, TDest)
 {
