@@ -4,6 +4,7 @@
 module automapper.mapper;
 
 import automapper.meta;
+import automapper.naming;
 
 
 /**
@@ -13,7 +14,7 @@ package class ObjectMapper(F, T, M...)
 {
     alias A = F;
     alias B = T;
-    alias Mappings = tryAutoMapUnmappedMembers!(A, B, M);
+    alias Mappings = tryAutoMapUnmappedMembers!(A, B, CamelCaseNamingConvention, M);
 
     static B map(AutoMapper)(A a, AutoMapper am)
     {
@@ -238,12 +239,14 @@ package template listMappedObjectMember(Mappings...) if (allSatisfy!(isObjectMem
     Returns:
         A list of completed ObjectMemberMapping
 */
-package template tryAutoMapUnmappedMembers(A, B, Mappings...) if (allSatisfy!(isObjectMemberMapping, Mappings))
+package template tryAutoMapUnmappedMembers(A, B, C, Mappings...) if
+    (isNamingConvention!C && allSatisfy!(isObjectMemberMapping, Mappings))
 {
     import std.algorithm : canFind;
     import std.string : join;
 
     enum MappedMembers = listMappedObjectMember!(Mappings);
+    enum Convention = C();
 
     private template tryAutoMapUnmappedMembersImpl(size_t idx) {
         static if (idx < FlattenedMembers!A.length) {
@@ -256,9 +259,9 @@ package template tryAutoMapUnmappedMembers(A, B, Mappings...) if (allSatisfy!(is
                     alias tryAutoMapUnmappedMembersImpl = AliasSeq!(ForMember!(M, M),
                         tryAutoMapUnmappedMembersImpl!(idx+1));
                 }
-                // B has this flatenned class member: B.fooBar = A.foo.bar
-                else static if (hasMember!(B, M.flattenedToCamelCase())) {
-                    alias tryAutoMapUnmappedMembersImpl = AliasSeq!(ForMember!(M.flattenedToCamelCase, M),
+                // B has this Convention.convert(identifier) class member: B.Convention.convert(identifier) = A.foo.bar
+                else static if (hasMember!(B, Convention.convert(M))) {
+                    alias tryAutoMapUnmappedMembersImpl = AliasSeq!(ForMember!(Convention.convert(M), M),
                         tryAutoMapUnmappedMembersImpl!(idx+1));
                 }
                 else

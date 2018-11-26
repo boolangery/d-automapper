@@ -264,26 +264,6 @@ template isClassOrStruct(T)
     enum bool isClassOrStruct = (is(T == class) || is(T == struct));
 }
 
-string flattenedToCamelCase(string str)
-{
-    import std.string : split, join, capitalize;
-    import std.algorithm : map;
-
-    auto sp = str.split(".");
-
-    if (sp.length > 1)
-        return sp[0] ~ sp[1..$].map!capitalize.join();
-    else
-        return sp.join();
-}
-
-unittest
-{
-    static assert("foo.bar".flattenedToCamelCase() == "fooBar");
-    static assert("foo.bar.baz".flattenedToCamelCase() == "fooBarBaz");
-    static assert("foo".flattenedToCamelCase() == "foo");
-}
-
 string[] splitOnCase(string str)
 {
     import std.ascii : isUpper;

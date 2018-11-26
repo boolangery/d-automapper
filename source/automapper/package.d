@@ -77,6 +77,7 @@ import automapper.meta;
 import automapper.mapper;
 import automapper.type.converter;
 import automapper.value.transformer;
+import automapper.naming;
 
 /**
     Define AutoMapper configuration.
@@ -292,7 +293,8 @@ private template generateReversedMapper(Mappers...) if (allSatisfy!(isObjectMapp
             }
 
             static if (M.MustBeReversed) // reverse it if needed
-                alias generateReversedMapperImpl = AliasSeq!(CreateMap!(M.B, M.A, tryAutoMapUnmappedMembers!(M.B, M.A, reverseMapping!0)),
+                alias generateReversedMapperImpl = AliasSeq!(CreateMap!(M.B, M.A,
+                    tryAutoMapUnmappedMembers!(M.B, M.A, CamelCaseNamingConvention, reverseMapping!0)),
                     generateReversedMapperImpl!(idx + 1));
             else
                 alias generateReversedMapperImpl = generateReversedMapperImpl!(idx + 1); // continue
@@ -302,33 +304,6 @@ private template generateReversedMapper(Mappers...) if (allSatisfy!(isObjectMapp
     }
 
     alias generateReversedMapper = generateReversedMapperImpl!0;
-}
-
-/**
-    Complete user defined Mappers with automatic member mapping.
-    Params:
-        Mappers = list of Mapper
-*/
-private template tryCompleteMappers(Mappers...) if (allSatisfy!(isObjectMapper, Mappers))
-{
-    private template tryCompleteMappersImpl(size_t idx) {
-        static if (idx < Mappers.length) {
-            alias M = Mappers[idx];
-
-            // select good mapper type
-            static if (M.MustBeReversed)
-                alias CM = CreateMapWithReverse;
-            else
-                alias CM = CreateMap;
-
-            alias tryCompleteMappersImpl = AliasSeq!(CM!(M.A, M.B, tryAutoMapUnmappedMembers!(M.A, M.B, M.Mappings)),
-                tryCompleteMappersImpl!(idx + 1));
-        }
-        else
-            alias tryCompleteMappersImpl = AliasSeq!();
-    }
-
-    alias tryCompleteMappers = tryCompleteMappersImpl!0;
 }
 
 /// Filter Mappers list to return only mapper that match MapperType.
