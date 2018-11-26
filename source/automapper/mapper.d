@@ -12,11 +12,11 @@ import automapper.value.transformer;
 /**
     Allow to create compile-time generated class and struct mapper.
 */
-package class ObjectMapper(F, T, C, M...) if (isNamingConvention!C)
+package class ObjectMapper(F, T, M...)
 {
     alias A = F;
     alias B = T;
-    alias Mappings = tryAutoMapUnmappedMembers!(A, B, C, M);
+    alias Mappings = M;
 
     static B map(AutoMapper)(A a, AutoMapper am)
     {
@@ -86,23 +86,9 @@ package class ObjectMapper(F, T, C, M...) if (isNamingConvention!C)
 
 package template isObjectMapper(T)
 {
-    enum bool isObjectMapper = (is(T: ObjectMapper!(A, B, C), A, B, C) ||
-        is(T: ObjectMapper!(AB, BB, CB, M), AB, BB, CB, M));
+    enum bool isObjectMapper = (is(T: ObjectMapper!(A, B), A, B) ||
+        is(T: ObjectMapper!(A, B, M), M));
 }
-
-
-/// Indicate that the mapper must be reversed.
-struct ReverseMapConfig
-{
-    // do nothing
-}
-
-/// Check if its a `ReverseMapConfig`
-template isReverseMapConfig(T)
-{
-    enum isReverseMapConfig = is(T : ReverseMapConfig);
-}
-
 
 /**
     Base class for custom member mapping.
@@ -297,29 +283,41 @@ package template listMappedObjectMember(Mappings...) if (allSatisfy!(isObjectMem
     Returns:
         A list of completed ObjectMemberMapping
 */
-package template tryAutoMapUnmappedMembers(A, B, C, Mappings...) if
-    (isNamingConvention!C && allSatisfy!(isObjectMemberMapping, Mappings))
+package template tryAutoMapUnmappedMembers(TSource, TDest, SourceConv, DestConv, Mappings...) if
+    (isNamingConvention!SourceConv && isNamingConvention!DestConv &&
+    allSatisfy!(isObjectMemberMapping, Mappings))
 {
     import std.algorithm : canFind;
     import std.string : join;
 
     enum MappedMembers = listMappedObjectMember!(Mappings);
-    enum Convention = C();
+    enum SourceConvention = SourceConv();
+    enum DestConvention = DestConv();
 
     private template tryAutoMapUnmappedMembersImpl(size_t idx) {
-        static if (idx < FlattenedMembers!A.length) {
-            enum M = FlattenedMembers!A[idx];
+        static if (idx < FlattenedMembers!TSource.length) {
+            enum M = FlattenedMembers!TSource[idx];
 
             // un-mapped by user
             static if (!MappedMembers.canFind(M)) {
-                // B has this member: B.foo = A.foo
-                static if (hasMember!(B, M)) {
+                // TDest has this member
+                // i.e: TDest.foo = TSource.foo
+                static if (hasMember!(TDest, M)) {
                     alias tryAutoMapUnmappedMembersImpl = AliasSeq!(ForMemberConfig!(M, M),
                         tryAutoMapUnmappedMembersImpl!(idx+1));
                 }
-                // B has this Convention.convert(identifier) class member: B.Convention.convert(identifier) = A.foo.bar
-                else static if (hasMember!(B, Convention.convert(M))) {
-                    alias tryAutoMapUnmappedMembersImpl = AliasSeq!(ForMemberConfig!(Convention.convert(M), M),
+                // flatenning
+                // TDest has a TSource member converted with DestConvention
+                // i.e: TDest.fooBar = TSource.foo.bar
+                else static if (hasMember!(TDest, DestConvention.convert(M))) {
+                    alias tryAutoMapUnmappedMembersImpl = AliasSeq!(ForMemberConfig!(SourceConvention.convert(M), M),
+                        tryAutoMapUnmappedMembersImpl!(idx+1));
+                }
+                // TDest with DestConvention has a TSource member converted using SourceConvention
+                // i.e: TDest.foo_bar = TSource.fooBar
+                else static if (hasMember!(TDest, DestConvention.convert(SourceConvention.convertBack(M)))) {
+                    alias tryAutoMapUnmappedMembersImpl = AliasSeq!(
+                        ForMemberConfig!(DestConvention.convert(SourceConvention.convertBack(M)), M),
                         tryAutoMapUnmappedMembersImpl!(idx+1));
                 }
                 else

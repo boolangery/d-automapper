@@ -75,11 +75,11 @@ module automapper;
 
 import automapper.meta;
 import automapper.value.transformer;
-import automapper.naming;
 
 public import automapper.api;
 public import automapper.type.converter;
 public import automapper.mapper;
+public import automapper.naming;
 
 
 /// Is the provided type a configuration object ?
@@ -338,6 +338,31 @@ unittest
     assert(dto.addressZipcode == user.address.zipcode);
 }
 
+// Naming conventions
+unittest
+{
+    static class A {
+        int foo_bar_baz = 42;
+        string data_processor = "42";
+    }
+
+    static class B {
+        int fooBarBaz;
+        string dataProcessor;
+    }
+
+    auto am = MapperConfiguration!(
+        CreateMap!(A, B)
+            .SourceMemberNaming!LowerUnderscoreNamingConvention
+            .DestMemberNaming!CamelCaseNamingConvention)
+                .createMapper();
+
+    A a = new A();
+    B b = am.map!B(a);
+    assert(a.foo_bar_baz == b.fooBarBaz);
+    assert(a.data_processor == b.dataProcessor);
+}
+
 // Type converters
 unittest
 {
@@ -376,7 +401,6 @@ unittest
     b = am_class.map!B(a);
     assert(SysTime(a.timestamp) == b.timestamp);
 }
-
 
 // struct
 unittest

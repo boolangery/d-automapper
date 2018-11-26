@@ -4,46 +4,99 @@
 module automapper.api;
 
 import automapper.meta;
+import automapper.naming;
 
+
+/// Indicate that the mapper must be reversed.
+struct ReverseMapConfig
+{
+    // do nothing
+}
+
+/// Check if its a `ReverseMapConfig`
+template isReverseMapConfig(T)
+{
+    enum isReverseMapConfig = is(T : ReverseMapConfig);
+}
+
+/// Precise the naming convention for source object in a mapper
+struct SourceNamingConventionConfig(T) if (isNamingConvention!T)
+{
+    alias Convention = T;
+}
+
+template isSourceNamingConventionConfig(T)
+{
+    enum isSourceNamingConventionConfig = is(T : SourceNamingConventionConfig!C, C);
+}
+
+/// Precise the naming convention for dest object in a mapper
+struct DestNamingConventionConfig(T) if (isNamingConvention!T)
+{
+    alias Convention = T;
+}
+
+template isDestNamingConventionConfig(T)
+{
+    enum isDestNamingConventionConfig = is(T : DestNamingConventionConfig!C, C);
+}
 
 /// Entry point for building an ObjectMapper in a fluent way
-template CreateMap(A, B, Configs...) if (isClassOrStruct!A && isClassOrStruct!B)
+template CreateMap(TSource, TDest, Configs...) if (isClassOrStruct!TSource && isClassOrStruct!TDest)
 {
     import automapper.mapper;
     import automapper.naming;
 
     enum bool Reverse = onlyOneExists!(isReverseMapConfig, Configs);
     alias MemberMappings = Filter!(isObjectMemberMapping, Configs);
+    alias SourceNamingConvention = findOrDefault!(isSourceNamingConventionConfig,
+        SourceNamingConventionConfig!CamelCaseNamingConvention, Configs);
+    alias DestNamingConvention = findOrDefault!(isDestNamingConventionConfig,
+        DestNamingConventionConfig!CamelCaseNamingConvention, Configs);
+    alias CompletedMemberMappings = tryAutoMapUnmappedMembers!(TSource, TDest,
+        SourceNamingConvention.Convention, DestNamingConvention.Convention, MemberMappings);
 
     // By default we set the CamelCaseNamingConvention
-    alias static class CreateMap : ObjectMapper!(A, B, CamelCaseNamingConvention, MemberMappings)
+    alias static class CreateMap : ObjectMapper!(TSource, TDest, CompletedMemberMappings)
     {
         enum bool MustBeReversed = Reverse;
 
         /// Tell to reverse the mapper automatically
         template ReverseMap()
         {
-            alias ReverseMap = CreateMap!(A, B, AliasSeq!(Configs, ReverseMapConfig));
+            alias ReverseMap = CreateMap!(TSource, TDest, AliasSeq!(Configs, ReverseMapConfig));
         }
 
         /// Precise a member mapping
         template ForMember(string DestMember, string SrcMember)
         {
-            alias ForMember = CreateMap!(A, B, AliasSeq!(Configs,
+            alias ForMember = CreateMap!(TSource, TDest, AliasSeq!(Configs,
                 ForMemberConfig!(DestMember, SrcMember)));
         }
 
         /// Customize member mapping with a delegate
         template ForMember(string DestMember, alias Delegate)
         {
-            alias ForMember = CreateMap!(A, B, AliasSeq!(Configs,
+            alias ForMember = CreateMap!(TSource, TDest, AliasSeq!(Configs,
                 ForMemberConfig!(DestMember, Delegate)));
         }
 
         /// Ignore a member
         template Ignore(string DestMember)
         {
-            alias Ignore = CreateMap!(A, B, AliasSeq!(Configs, IgnoreConfig!DestMember));
+            alias Ignore = CreateMap!(TSource, TDest, AliasSeq!(Configs, IgnoreConfig!DestMember));
+        }
+
+        /// Set source naming convention
+        template SourceMemberNaming(TConv) if (isNamingConvention!TConv)
+        {
+            alias SourceMemberNaming = CreateMap!(TSource, TDest, AliasSeq!(Configs, SourceNamingConventionConfig!TConv));
+        }
+
+        /// Set dest. naming convention
+        template DestMemberNaming(TConv) if (isNamingConvention!TConv)
+        {
+            alias DestMemberNaming = CreateMap!(TSource, TDest, AliasSeq!(Configs, DestNamingConventionConfig!TConv));
         }
     }
 }
