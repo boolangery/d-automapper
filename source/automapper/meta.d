@@ -284,7 +284,7 @@ unittest
     static assert("foo".flattenedToCamelCase() == "foo");
 }
 
-string[] splitCamelCase(string str)
+string[] splitOnCase(string str)
 {
     import std.ascii : isUpper;
     import std.uni : toLower;
@@ -293,7 +293,7 @@ string[] splitCamelCase(string str)
     string tmp;
     int k = 0;
     foreach(c; str) {
-        if (c.isUpper) {
+        if (c.isUpper && tmp != "") {
             res ~= tmp;
             tmp = "";
         }
@@ -311,21 +311,51 @@ string[] splitCamelCase(string str)
 /// unittest
 unittest
 {
-    static assert("fooBarBaz".splitCamelCase() == ["foo", "bar", "baz"]);
+    static assert("fooBarBaz".splitOnCase() == ["foo", "bar", "baz"]);
 }
 
-/// Returns true if its a RT delegate(P)
-template isDelegateWithRtParam(alias D, P, RT)
+/// Returns true if its a RT function(P)
+template isSpecifiedCallable(alias D, P, RT)
 {
     static if (isCallable!D)
-        enum bool isDelegateWithRtParam = (is(ReturnType!D == RT) && (Parameters!D.length > 0) &&
+        enum bool isSpecifiedCallable = (is(ReturnType!D == RT) && (Parameters!D.length > 0) &&
             is(Parameters!D[0] == P));
     else
-        enum bool isDelegateWithRtParam = false;
+        enum bool isSpecifiedCallable = false;
 }
 
 ///
 unittest
 {
-    static assert(isDelegateWithRtParam!((long ts) => "foo", long, string));
+    static assert(isSpecifiedCallable!((long ts) => "foo", long, string));
+}
+
+/// Returns true if T has the specified callable
+template hasSpecifiedCallable(T, string callable, P, RT)
+{
+    static if (__traits(hasMember, T, callable)) {
+        static if (is(T t : T)) {
+            enum hasSpecifiedCallable = (isSpecifiedCallable!(__traits(getMember, t, callable), P, RT));
+        }
+        else
+            enum hasSpecifiedCallable = false;
+    }
+    else
+        enum hasSpecifiedCallable = false;
+}
+
+unittest
+{
+    struct A
+    {
+        string foo(string a)
+        {
+            return a;
+        }
+    }
+
+    static assert(hasSpecifiedCallable!(A, "foo", string, string));
+    static assert(!hasSpecifiedCallable!(A, "foo", int, string));
+    static assert(!hasSpecifiedCallable!(A, "foo", string, int));
+    static assert(!hasSpecifiedCallable!(A, "bar", string, string));
 }
