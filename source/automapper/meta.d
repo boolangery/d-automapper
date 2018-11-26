@@ -339,3 +339,23 @@ unittest
     static assert(!hasSpecifiedCallable!(A, "foo", string, int));
     static assert(!hasSpecifiedCallable!(A, "bar", string, string));
 }
+
+/// Find a type matching a criteria or return default
+template findOrDefault(alias Criteria, Default, T...) {
+    alias Found = Filter!(Criteria, T);
+
+    static if (Found.length == 1)
+        alias findOrDefault = Found[0];
+    else
+        alias findOrDefault = Default;
+}
+
+/// Check if a type matching a criteria exists and only one
+template onlyOneExists(alias Criteria, T...) {
+    alias Found = Filter!(Criteria, T);
+
+    static if (Found.length == 1)
+        enum onlyOneExists = true;
+    else
+        enum onlyOneExists = false;
+}
