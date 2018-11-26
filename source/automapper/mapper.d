@@ -122,98 +122,6 @@ private template generateReversedMapper(Mappers...) if (allSatisfy!(isObjectMapp
 }
 
 
-template CreateMap(A, B, M...) if (!isClassOrStruct!A || !isClassOrStruct!B)
-{
-    // it's a class or struct mapper
-    static if (isClassOrStruct!A && isClassOrStruct!B && allSatisfy!(isObjectMemberMapping, M)) {
-        alias static class CreateMap : ObjectMapper!(A, B, CamelCaseNamingConvention, M)
-        {
-            // alias Mappings = AliasSeq!M;
-            enum bool MustBeReversed = false;
-
-            template ReverseMap()
-            {
-                alias static class ReverseMap : ObjectMapper!(A, B, CamelCaseNamingConvention, M)
-                {
-                    // alias Mappings = AliasSeq!M;
-                    enum bool MustBeReversed = true;
-                }
-            }
-
-            template SourceMemberNaming(C) if (isNamingConvention!C)
-            {
-                alias static class SourceMemberNaming : ObjectMapper!(A, B, C, M)
-                {
-                    // alias Mappings = AliasSeq!M;
-                    enum bool MustBeReversed = true;
-                }
-            }
-        }
-    }
-    // it's a type converter
-    else static if (M.length is 0) {
-        template ConvertUsing(alias Delegate) if (isCallable!Delegate)
-        {
-            static assert(is(ReturnType!Delegate == B), "must return a " ~ B.stringof);
-            static assert((Parameters!Delegate.length == 1) && is(Parameters!Delegate[0] == A), "must take one argument of type " ~ A.stringof);
-
-            alias static class ConvertUsing : DelegateTypeConverter!(A, B, Delegate)
-            {
-
-            }
-        }
-
-        template ConvertUsing(Type) if (isTypeConverter!Type)
-        {
-            alias ConvertUsing = Type;
-        }
-    }
-    else
-    {
-        static assert(false, "invalid call");
-    }
-}
-
-///
-unittest
-{
-    class A {
-        string foo;
-        int bar;
-    }
-
-    class B {
-        string qux;
-        int baz;
-    }
-
-   auto am = MapperConfiguration!(
-        CreateMap!(A, B)
-            .ForMember!("qux", "foo")
-            .ForMember!("baz", "foo"))
-                .createMapper();
-}
-
-///
-unittest
-{
-    import std.datetime;
-
-    class A {
-        long timestamp;
-    }
-
-    class B {
-        SysTime timestamp;
-    }
-
-    auto am = MapperConfiguration!(
-        CreateMap!(long, SysTime)
-            .ConvertUsing!((long ts) => SysTime(ts)),
-        CreateMap!(A, B))
-            .createMapper();
-}
-
 /// Filter Mappers list to return only mapper that match MapperType.
 private template getMappersByType(Mappers...) if (allSatisfy!(isObjectMapper, Mappers))
 {
@@ -278,6 +186,7 @@ template isReverseMapConfig(T)
     enum isReverseMapConfig = is(T : ReverseMapConfig);
 }
 
+/// For object mapper
 template CreateMap(A, B, Configs...) if (isClassOrStruct!A && isClassOrStruct!B)
 {
     enum bool Reverse = onlyOneExists!(isReverseMapConfig, Configs);
@@ -311,23 +220,67 @@ template CreateMap(A, B, Configs...) if (isClassOrStruct!A && isClassOrStruct!B)
     }
 }
 
+///
 unittest
 {
-    static class A {
-        string str;
-        string bar;
+    class A {
+        string foo;
+        int bar;
     }
 
-    static class B {
-        string str;
-        string foo;
+    class B {
+        string qux;
+        int baz;
     }
 
    auto am = MapperConfiguration!(
         CreateMap!(A, B)
-            .ForMember!("str", "str")
-            .ForMember!("foo", "bar"))
+            .ForMember!("qux", "foo")
+            .ForMember!("baz", "foo"))
                 .createMapper();
+}
+
+/// For type converter
+template CreateMap(A, B) if (!isClassOrStruct!A || !isClassOrStruct!B)
+{
+    alias static class CreateMap
+    {
+        template ConvertUsing(alias Delegate) if (isCallable!Delegate)
+        {
+            static assert(is(ReturnType!Delegate == B), "must return a " ~ B.stringof);
+            static assert((Parameters!Delegate.length == 1) && is(Parameters!Delegate[0] == A), "must take one argument of type " ~ A.stringof);
+
+            alias static class ConvertUsing : DelegateTypeConverter!(A, B, Delegate)
+            {
+
+            }
+        }
+
+        template ConvertUsing(Type) if (isTypeConverter!Type)
+        {
+            alias ConvertUsing = Type;
+        }
+    }
+}
+
+///
+unittest
+{
+    import std.datetime;
+
+    class A {
+        long timestamp;
+    }
+
+    class B {
+        SysTime timestamp;
+    }
+
+    auto am = MapperConfiguration!(
+        CreateMap!(long, SysTime)
+            .ConvertUsing!((long ts) => SysTime(ts)),
+        CreateMap!(A, B))
+            .createMapper();
 }
 
 /**
