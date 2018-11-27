@@ -161,6 +161,7 @@ unittest
     assert(dto.addressZipcode == user.address.zipcode);
 }
 
+
 /**
     AutoMapper entry point.
 
@@ -176,20 +177,30 @@ private:
     private alias FullMappers = MC.FullObjectMappers;
     // debug pragma(msg, "FullMappers: " ~ Mappers.stringof);
 
-    private template uniqueConverterIdentifier(A, B)
+    /// run-time
+    private string runtimeUniqueMapperIdentifier(TypeInfo a, TypeInfo b)
     {
         import std.string : replace;
-        enum string uniqueConverterIdentifier = ("conv_" ~ fullyQualifiedName!A ~ "_" ~ fullyQualifiedName!B).replace(".", "_");
+
+        return ("mapper_" ~ a.toString() ~ "_" ~ b.toString()).replace(".", "_");
+    }
+
+    /// compile-time
+    private template uniqueConverterIdentifier(T)
+    {
+        import std.string : replace;
+        static if (is(T : ITypeConverter!(A, B), A, B))
+            enum string uniqueConverterIdentifier = ("conv_" ~ fullyQualifiedName!A ~ "_" ~ fullyQualifiedName!B).replace(".", "_");
     }
 
     // declare private registered ITypeConverter
     static foreach (Conv; TypesConverters) {
         static if (is(Conv : ITypeConverter!(A, B), A, B)) {
-            mixin(q{private ITypeConverter!(A, B) %s; }.format(
-                uniqueConverterIdentifier!(A, B)));
+            mixin(q{private ITypeConverter!(%s, %s) %s; }.format(fullyQualifiedName!A, fullyQualifiedName!B, uniqueConverterIdentifier!Conv));
         }
     }
 
+    /// compile-time
     private template uniqueTransformerIdentifier(A)
     {
         import std.string : replace;
@@ -209,8 +220,7 @@ public:
     {
         // instanciate registered ITypeConverter
         static foreach (Conv; TypesConverters)
-            static if (is(Conv : ITypeConverter!(A, B), A, B))
-                mixin(q{%s = new Conv(); }.format(uniqueConverterIdentifier!(A, B)));
+            mixin(q{%s = new Conv(); }.format(uniqueConverterIdentifier!Conv));
 
         // instanciate registered IValueTransformer
         static foreach (Trans; ValueTransformers)
@@ -267,7 +277,7 @@ public:
         static if (M.length is 0)
             static assert(false, "No type converter found for mapping from " ~ A.stringof ~ " to " ~ B.stringof);
         else
-            return __traits(getMember, this, uniqueConverterIdentifier!(A, B)).convert(a);
+            return __traits(getMember, this, uniqueConverterIdentifier!M).convert(a);
     }
 
     TValue transform(TValue)(TValue value)
