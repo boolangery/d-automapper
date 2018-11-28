@@ -94,8 +94,26 @@ class AutoMapper(MC) if (is(MC : MapperConfiguration!(C), C))
 private:
     private alias TypesConverters = MC.TypesConverters;
     private alias ValueTransformers = MC.ValueTransformers;
-    private alias FullMappers = MC.FullObjectMappers;
-    // debug pragma(msg, "FullMappers: " ~ Mappers.stringof);
+
+    alias FullMapperConfigs = AliasSeq!(MC.ObjectMappersConfig, generateReversedMapperConfig!(MC.ObjectMappersConfig));
+
+    private template buildMapper()
+    {
+        private template buildMapperImpl(size_t idx) {
+            static if (idx < FullMapperConfigs.length) {
+                alias MPC = FullMapperConfigs[idx];
+
+                alias buildMapperImpl = AliasSeq!(
+                    ObjectMapper!(MPC.A, MPC.B, MPC.M),
+                    buildMapperImpl!(idx + 1));
+            }
+            else
+                alias buildMapperImpl = AliasSeq!();
+        }
+        alias buildMapper = buildMapperImpl!0;
+    }
+
+    alias FullMappers = buildMapper!();
 
     /// run-time
     private string runtimeUniqueMapperIdentifier(TypeInfo a, TypeInfo b)

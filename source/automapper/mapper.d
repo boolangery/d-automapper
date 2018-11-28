@@ -95,6 +95,7 @@ package template isObjectMapper(T)
     It take a list of Mapper, and return a new list of reversed mapper if needed.
     e.g. for CreateMap!(A, B, ForMember("foo", "bar")), it create CreateMap!(B, A, ForMember("bar", "foo")
 */
+/*
 template generateReversedMapper(Mappers...) if (allSatisfy!(isObjectMapper, Mappers))
 {
     import automapper.api;
@@ -132,6 +133,46 @@ template generateReversedMapper(Mappers...) if (allSatisfy!(isObjectMapper, Mapp
     }
 
     alias generateReversedMapper = generateReversedMapperImpl!0;
+}
+*/
+
+template generateReversedMapperConfig(MapperConfigs...) if (allSatisfy!(isObjectMapperConfig, MapperConfigs))
+{
+    import automapper.api;
+
+    private template generateReversedMapperConfigImpl(size_t idx) {
+        static if (idx < MapperConfigs.length) {
+            alias M = MapperConfigs[idx];
+
+            private template reverseMapping(size_t midx) {
+                static if (midx < M.M.length) {
+                    alias MP = M.M[midx];
+
+                    static if (isForMember!(MP, ForMemberConfigType.mapMember)) {
+                        alias reverseMapping = AliasSeq!(ForMemberConfig!(MP.Action, MP.DestMember), reverseMapping!(midx + 1));
+                    }
+                    else static if (isForMember!(MP, ForMemberConfigType.mapDelegate)) {
+                        static assert(false, "Cannot reverse mapping '" ~ M.A.stringof ~ " -> " ~ M.B.stringof ~
+                            "' because it use a custom user delegate: " ~ MP.stringof);
+                    }
+                    else
+                        alias reverseMapping = reverseMapping!(midx + 1); // continue
+                }
+                else
+                    alias reverseMapping = AliasSeq!();
+            }
+
+            static if (M.R) // reverse it if needed
+                alias generateReversedMapperConfigImpl = AliasSeq!(CreateMap!(M.B, M.A, reverseMapping!0),
+                    generateReversedMapperConfigImpl!(idx + 1));
+            else
+                alias generateReversedMapperConfigImpl = generateReversedMapperConfigImpl!(idx + 1); // continue
+        }
+        else
+            alias generateReversedMapperConfigImpl = AliasSeq!();
+    }
+
+    alias generateReversedMapperConfig = generateReversedMapperConfigImpl!0;
 }
 
 /**
@@ -179,6 +220,8 @@ package template tryAutoMapUnmappedMembers(TSource, TDest, SourceConv, DestConv,
 {
     import std.algorithm : canFind;
     import std.string : join;
+
+    //static if (is(TConfig : ObjectMapperConfig!(TSource, TDest, TSourceConv, TDestConv, Reverse, Mappings),
 
     enum MappedMembers = listMappedObjectMember!(Mappings);
     enum SourceConvention = SourceConv();

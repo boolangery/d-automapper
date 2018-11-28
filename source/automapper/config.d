@@ -4,20 +4,39 @@
 module automapper.config;
 
 import automapper.meta;
-import automapper.mapper : isObjectMapper, generateReversedMapper;
+import automapper.mapper;
 import automapper.type.converter : isTypeConverter;
 import automapper.value.transformer : isValueTransformer;
+import automapper.naming : isNamingConvention;
 
 
 /// Is the provided type a configuration object ?
 package template isConfigurationObject(T)
 {
     enum bool isConfigurationObject = (
-        isObjectMapper!T ||
+        isObjectMapperConfig!T ||
         isTypeConverter!T ||
         isValueTransformer!T);
 }
 
+class ObjectMapperConfig(TSource, TDest, TSourceConv, TDestConv, bool Reverse, Mappings...) if
+    (isClassOrStruct!TSource && isClassOrStruct!TDest &&
+    isNamingConvention!TSourceConv && isNamingConvention!TDestConv &&
+    allSatisfy!(isObjectMemberMappingConfig, Mappings))
+{
+    // TODO: to be removed
+    alias A = TSource;
+    alias B = TDest;
+    alias M = Mappings;
+    alias R = Reverse;
+}
+
+
+template isObjectMapperConfig(T)
+{
+    enum bool isObjectMapperConfig = is(T : ObjectMapperConfig!(TSource, TDest, TSourceConv, TDestConv, Reverse, Mappings),
+        TSource, TDest, TSourceConv, TDestConv, bool Reverse, Mappings);
+}
 
 /**
     Base class for mapping a member in destination object.
@@ -130,21 +149,17 @@ unittest
                 .createMapper();
 }
 
-
-
-//struct MapperConfiguration(TSource, TDest, )
-
 /**
     Define AutoMapper configuration.
 */
-class MapperConfiguration(Configs...) if (allSatisfy!(isConfigurationObject, Configs))
+class MapperConfiguration(Configs...) // if (allSatisfy!(isConfigurationObject, Configs))
 {
     // sort configuration object
-    private alias ObjectMappers = Filter!(isObjectMapper, Configs);
+    alias ObjectMappersConfig = Filter!(isObjectMapperConfig, Configs);
     alias TypesConverters = Filter!(isTypeConverter, Configs);
     alias ValueTransformers = Filter!(isValueTransformer, Configs);
     // Add reversed mapper to user mapper
-    alias FullObjectMappers = AliasSeq!(ObjectMappers, generateReversedMapper!ObjectMappers);
+    // alias FullObjectMappers = AliasSeq!(ObjectMappers, generateReversedMapper!ObjectMappers);
 
     static auto createMapper()
     {

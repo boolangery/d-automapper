@@ -58,6 +58,48 @@ template CreateMap(TSource, TDest, Configs...) if (isClassOrStruct!TSource && is
         SourceNamingConvention.Convention, DestNamingConvention.Convention, MemberMappings);
 
     // By default we set the CamelCaseNamingConvention
+    alias static class CreateMap : ObjectMapperConfig!(TSource, TDest, SourceNamingConvention.Convention,
+        DestNamingConvention.Convention, Reverse, CompletedMemberMappings)
+    {
+        /// Tell to reverse the mapper automatically
+        template ReverseMap()
+        {
+            alias ReverseMap = CreateMap!(TSource, TDest, AliasSeq!(Configs, ReverseMapConfig));
+        }
+
+        /// Precise a member mapping
+        template ForMember(string DestMember, string SrcMember)
+        {
+            alias ForMember = CreateMap!(TSource, TDest, AliasSeq!(Configs,
+                ForMemberConfig!(DestMember, SrcMember)));
+        }
+
+        /// Customize member mapping with a delegate
+        template ForMember(string DestMember, alias Delegate)
+        {
+            alias ForMember = CreateMap!(TSource, TDest, AliasSeq!(Configs,
+                ForMemberConfig!(DestMember, Delegate)));
+        }
+
+        /// Ignore a member
+        template Ignore(string DestMember)
+        {
+            alias Ignore = CreateMap!(TSource, TDest, AliasSeq!(Configs, IgnoreConfig!DestMember));
+        }
+
+        /// Set source naming convention
+        template SourceMemberNaming(TConv) if (isNamingConvention!TConv)
+        {
+            alias SourceMemberNaming = CreateMap!(TSource, TDest, AliasSeq!(Configs, SourceNamingConventionConfig!TConv));
+        }
+
+        /// Set dest. naming convention
+        template DestMemberNaming(TConv) if (isNamingConvention!TConv)
+        {
+            alias DestMemberNaming = CreateMap!(TSource, TDest, AliasSeq!(Configs, DestNamingConventionConfig!TConv));
+        }
+    }
+    /*
     alias static class CreateMap : ObjectMapper!(TSource, TDest, CompletedMemberMappings)
     {
         enum bool MustBeReversed = Reverse;
@@ -99,7 +141,7 @@ template CreateMap(TSource, TDest, Configs...) if (isClassOrStruct!TSource && is
         {
             alias DestMemberNaming = CreateMap!(TSource, TDest, AliasSeq!(Configs, DestNamingConventionConfig!TConv));
         }
-    }
+    }*/
 }
 
 ///
