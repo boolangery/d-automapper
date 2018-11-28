@@ -34,8 +34,14 @@ class ObjectMapperConfig(TSource, TDest, TSourceConv, TDestConv, bool Reverse, M
 
 template isObjectMapperConfig(T)
 {
-    enum bool isObjectMapperConfig = is(T : ObjectMapperConfig!(TSource, TDest, TSourceConv, TDestConv, Reverse, Mappings),
-        TSource, TDest, TSourceConv, TDestConv, bool Reverse, Mappings);
+    static if (is(T : ObjectMapperConfig!(TSource, TDest, TSourceConv, TDestConv, Reverse, Mappings),
+        TSource, TDest, TSourceConv, TDestConv, bool Reverse, Mappings))
+        enum isObjectMapperConfig = true;
+    else static if (is(T : ObjectMapperConfig!(TSource, TDest, TSourceConv, TDestConv, Reverse),
+        TSource, TDest, TSourceConv, TDestConv, bool Reverse))
+        enum isObjectMapperConfig = true;
+    else
+        enum isObjectMapperConfig = false;
 }
 
 /**

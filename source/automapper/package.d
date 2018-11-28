@@ -104,7 +104,7 @@ private:
                 alias MPC = FullMapperConfigs[idx];
 
                 alias buildMapperImpl = AliasSeq!(
-                    ObjectMapper!(MPC.A, MPC.B, MPC.M),
+                    ObjectMapper!MPC,
                     buildMapperImpl!(idx + 1));
             }
             else
@@ -113,7 +113,9 @@ private:
         alias buildMapper = buildMapperImpl!0;
     }
 
+
     alias FullMappers = buildMapper!();
+
 
     /// run-time
     private string runtimeUniqueMapperIdentifier(TypeInfo a, TypeInfo b)
@@ -176,8 +178,7 @@ public:
     B map(B, A)(A a) if (isClassOrStruct!A && isClassOrStruct!B)
     {
         template isRightMapper(T) {
-            enum bool isRightMapper = (is(T : ObjectMapper!(A, B, C), C) ||
-                is(T : ObjectMapper!(A, B, C, M), M));
+            enum bool isRightMapper = (isInstanceOf!(ObjectMapper, T) && is(T.A : A) && is(T.B : B));
         }
 
         alias M = Filter!(isRightMapper, FullMappers);
