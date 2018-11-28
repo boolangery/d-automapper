@@ -5,6 +5,7 @@ module automapper.api;
 
 import automapper.meta;
 import automapper.naming;
+public import automapper.config;
 
 
 /// Indicate that the mapper must be reversed.
@@ -48,7 +49,7 @@ template CreateMap(TSource, TDest, Configs...) if (isClassOrStruct!TSource && is
     import automapper.naming;
 
     enum bool Reverse = onlyOneExists!(isReverseMapConfig, Configs);
-    alias MemberMappings = Filter!(isObjectMemberMapping, Configs);
+    alias MemberMappings = Filter!(isObjectMemberMappingConfig, Configs);
     alias SourceNamingConvention = findOrDefault!(isSourceNamingConventionConfig,
         SourceNamingConventionConfig!CamelCaseNamingConvention, Configs);
     alias DestNamingConvention = findOrDefault!(isDestNamingConventionConfig,

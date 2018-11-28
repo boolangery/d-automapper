@@ -80,7 +80,6 @@ public import automapper.api;
 public import automapper.type.converter;
 public import automapper.mapper;
 public import automapper.naming;
-public import automapper.config;
 
 
 /**

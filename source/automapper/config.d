@@ -4,7 +4,6 @@
 module automapper.config;
 
 import automapper.meta;
-import automapper.api;
 import automapper.mapper : isObjectMapper, generateReversedMapper;
 import automapper.type.converter : isTypeConverter;
 import automapper.value.transformer : isValueTransformer;
@@ -18,6 +17,122 @@ package template isConfigurationObject(T)
         isTypeConverter!T ||
         isValueTransformer!T);
 }
+
+
+/**
+    Base class for mapping a member in destination object.
+    Template_Params:
+        MT = The member to map in the destination object
+*/
+package class ObjectMemberMappingConfig(string T)
+{
+    enum string DestMember = T;
+}
+
+package template isObjectMemberMappingConfig(T)
+{
+    enum bool isObjectMemberMappingConfig = (is(T: ObjectMemberMappingConfig!BM, string BM));
+}
+
+/// `ForMemberConfig` mapping type
+package enum ForMemberConfigType
+{
+    mapMember,  // map a member to another member
+    mapDelegate // map a member to a delegate
+}
+
+/**
+    Used to specialized a member mapping.
+    Template_Params:
+        T = The member name in the destination object
+        F = The member name in the source object or a custom delegate
+**/
+class ForMemberConfig(string T, alias F) : ObjectMemberMappingConfig!(T)
+{
+    static assert(is(typeof(F) == string) || isCallable!F, ForMemberConfig.stringof ~
+        " Action must be a string to map a member to another member or a delegate.");
+
+    static if (is(typeof(F) == string))
+        private enum ForMemberConfigType Type = ForMemberConfigType.mapMember;
+    else
+        private enum ForMemberConfigType Type = ForMemberConfigType.mapDelegate;
+
+    alias Action = F;
+}
+
+///
+unittest
+{
+    import automapper;
+
+    class A {
+        string foo;
+        int bar;
+    }
+
+    class B {
+        string qux;
+        int baz;
+        long ts;
+    }
+
+   auto am = MapperConfiguration!(
+        CreateMap!(A, B)
+            .ForMember!("qux", "foo")
+            .ForMember!("baz", "foo")
+            .ForMember!("ts", (A a) => 123456 ))
+                .createMapper();
+}
+
+
+package template isForMember(T, ForMemberConfigType Type)
+{
+    static if (is(T == ForMemberConfig!(DestMember, Action), string DestMember, alias Action))
+        static if (T.Type == Type)
+            enum bool isForMember = true;
+        else
+            enum bool isForMember = false;
+    else
+        enum bool isForMember = false;
+}
+
+/**
+    Used to ignore a member in the destination object.
+    Template_Params:
+        T = The member name in the destination object
+**/
+class IgnoreConfig(string T) : ObjectMemberMappingConfig!(T)
+{
+    // do nothing
+}
+
+///
+unittest
+{
+    import automapper;
+
+    class A {
+        string foo;
+        int bar;
+    }
+
+    class B {
+        string qux;
+        int baz;
+        long ts;
+    }
+
+   auto am = MapperConfiguration!(
+        CreateMap!(A, B)
+            .ForMember!("qux", "foo")
+            .ForMember!("baz", "foo")
+            .Ignore!("ts"))
+                .createMapper();
+}
+
+
+
+//struct MapperConfiguration(TSource, TDest, )
 
 /**
     Define AutoMapper configuration.
@@ -41,6 +156,7 @@ class MapperConfiguration(Configs...) if (allSatisfy!(isConfigurationObject, Con
 ///
 unittest
 {
+    import automapper;
     import std.datetime;
 
     static class Address {

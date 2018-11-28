@@ -7,6 +7,7 @@ import automapper.meta;
 import automapper.naming;
 import automapper.type.converter;
 import automapper.value.transformer;
+import automapper.config;
 
 
 /**
@@ -47,35 +48,35 @@ package class ObjectMapper(F, T, M...)
 
         // generate mapping code
         static foreach(Mapping; AutoMapping) {
-            static if (isObjectMemberMapping!Mapping) {
-                static assert(hasNestedMember!(B, Mapping.MapTo), Mapping.MapTo ~ " is not a member of " ~ B.stringof);
+            static if (isObjectMemberMappingConfig!Mapping) {
+                static assert(hasNestedMember!(B, Mapping.DestMember), Mapping.DestMember ~ " is not a member of " ~ B.stringof);
 
                 // ForMember - mapMember
-                static if (isForMember!(Mapping, ForMemberType.mapMember)) {
+                static if (isForMember!(Mapping, ForMemberConfigType.mapMember)) {
                     static assert(hasNestedMember!(A, Mapping.Action), Mapping.Action ~ " is not a member of " ~ A.stringof);
 
                     // same type
-                    static if (is(MemberType!(B, Mapping.MapTo) == MemberType!(A, Mapping.Action))) {
-                        mixin(GetMember!(b, Mapping.MapTo)) = am.transform(mixin(GetMember!(a, Mapping.Action))); // b.member = a. member;
+                    static if (is(MemberType!(B, Mapping.DestMember) == MemberType!(A, Mapping.Action))) {
+                        mixin(GetMember!(b, Mapping.DestMember)) = am.transform(mixin(GetMember!(a, Mapping.Action))); // b.member = a. member;
                     }
                     // different type: map
                     else {
-                        __traits(getMember, b, Mapping.MapTo) = am.map!(
-                            MemberType!(B, Mapping.MapTo),
+                        __traits(getMember, b, Mapping.DestMember) = am.map!(
+                            MemberType!(B, Mapping.DestMember),
                             MemberType!(A, Mapping.Action))(__traits(getMember, a, Mapping.Action)); // b.member = context.map(a.member);
                     }
                 }
                 // ForMember - mapDelegate
-                else static if (isForMember!(Mapping, ForMemberType.mapDelegate)) {
+                else static if (isForMember!(Mapping, ForMemberConfigType.mapDelegate)) {
                     // static assert return type
-                    static assert(is(ReturnType!(Mapping.Action) == MemberType!(B, Mapping.MapTo)),
+                    static assert(is(ReturnType!(Mapping.Action) == MemberType!(B, Mapping.DestMember)),
                         "the func in " ~ ForMember.stringof ~ " must return a '" ~
-                        MemberType!(B, Mapping.MapTo).stringof ~ "' like " ~ B.stringof ~
-                        "." ~ Mapping.MapTo);
+                        MemberType!(B, Mapping.DestMember).stringof ~ "' like " ~ B.stringof ~
+                        "." ~ Mapping.DestMember);
                     // static assert parameters
                     static assert(Parameters!(Mapping.Action).length is 1 && is(Parameters!(Mapping.Action)[0] == A),
                         "the func in " ~ ForMember.stringof ~ " must take a value of type '" ~ A.stringof ~"'");
-                    __traits(getMember, b, Mapping.MapTo) = Mapping.Action(a);
+                    __traits(getMember, b, Mapping.DestMember) = Mapping.Action(a);
                 }
             }
         }
@@ -88,117 +89,6 @@ package template isObjectMapper(T)
 {
     enum bool isObjectMapper = (is(T: ObjectMapper!(A, B), A, B) ||
         is(T: ObjectMapper!(A, B, M), M));
-}
-
-/**
-    Base class for custom member mapping.
-    Template_Params:
-        MT = The member to map in the destination object
-**/
-package class ObjectMemberMapping(string T)
-{
-    enum string MapTo = T;
-}
-
-package template isObjectMemberMapping(T)
-{
-    enum bool isObjectMemberMapping = (is(T: ObjectMemberMapping!BM, string BM));
-}
-
-/// ForMember mapping type
-package enum ForMemberType
-{
-    mapMember,  // map a member to another member
-    mapDelegate // map a member to a delegate
-}
-
-/**
-    Used to specialized a member mapping.
-    Template_Params:
-        T = The member name in the destination object
-        F = The member name in the source object or a custom delegate
-**/
-class ForMemberConfig(string T, alias F) : ObjectMemberMapping!(T)
-{
-    static assert(is(typeof(F) == string) || isCallable!F, ForMemberConfig.stringof ~
-        " Action must be a string to map a member to another member or a delegate.");
-
-    static if (is(typeof(F) == string))
-        private enum ForMemberType Type = ForMemberType.mapMember;
-    else
-        private enum ForMemberType Type = ForMemberType.mapDelegate;
-
-    alias Action = F;
-}
-
-///
-unittest
-{
-    import automapper;
-
-    class A {
-        string foo;
-        int bar;
-    }
-
-    class B {
-        string qux;
-        int baz;
-        long ts;
-    }
-
-   auto am = MapperConfiguration!(
-        CreateMap!(A, B)
-            .ForMember!("qux", "foo")
-            .ForMember!("baz", "foo")
-            .ForMember!("ts", (A a) => 123456 ))
-                .createMapper();
-}
-
-
-package template isForMember(T, ForMemberType Type)
-{
-    static if (is(T == ForMemberConfig!(MapTo, Action), string MapTo, alias Action))
-        static if (T.Type == Type)
-            enum bool isForMember = true;
-        else
-            enum bool isForMember = false;
-    else
-        enum bool isForMember = false;
-}
-
-/**
-    Used to ignore a member in the destination object.
-    Template_Params:
-        T = The member name in the destination object
-**/
-class IgnoreConfig(string T) : ObjectMemberMapping!(T)
-{
-    // do nothing
-}
-
-///
-unittest
-{
-    import automapper;
-
-    class A {
-        string foo;
-        int bar;
-    }
-
-    class B {
-        string qux;
-        int baz;
-        long ts;
-    }
-
-   auto am = MapperConfiguration!(
-        CreateMap!(A, B)
-            .ForMember!("qux", "foo")
-            .ForMember!("baz", "foo")
-            .Ignore!("ts"))
-                .createMapper();
 }
 
 /**
@@ -217,10 +107,10 @@ template generateReversedMapper(Mappers...) if (allSatisfy!(isObjectMapper, Mapp
                 static if (midx < M.Mappings.length) {
                     alias MP = M.Mappings[midx];
 
-                    static if (isForMember!(MP, ForMemberType.mapMember)) {
-                        alias reverseMapping = AliasSeq!(ForMemberConfig!(MP.Action, MP.MapTo), reverseMapping!(midx + 1));
+                    static if (isForMember!(MP, ForMemberConfigType.mapMember)) {
+                        alias reverseMapping = AliasSeq!(ForMemberConfig!(MP.Action, MP.DestMember), reverseMapping!(midx + 1));
                     }
-                    else static if (isForMember!(MP, ForMemberType.mapDelegate)) {
+                    else static if (isForMember!(MP, ForMemberConfigType.mapDelegate)) {
                         static assert(false, "Cannot reverse mapping '" ~ M.A.stringof ~ " -> " ~ M.B.stringof ~
                             "' because it use a custom user delegate: " ~ MP.stringof);
                     }
@@ -251,14 +141,14 @@ template generateReversedMapper(Mappers...) if (allSatisfy!(isObjectMapper, Mapp
     Returns:
         a string[] of mapped member identifer
 */
-package template listMappedObjectMember(Mappings...) if (allSatisfy!(isObjectMemberMapping, Mappings))
+package template listMappedObjectMember(Mappings...) if (allSatisfy!(isObjectMemberMappingConfig, Mappings))
 {
     import std.string : split;
 
     private template listMappedObjectMemberImpl(size_t idx) {
         static if (idx < Mappings.length)
-            static if (isObjectMemberMapping!(Mappings[idx]))
-                enum string[] listMappedObjectMemberImpl = Mappings[idx].MapTo ~ Mappings[idx].MapTo.split(".") ~ listMappedObjectMemberImpl!(idx + 1);
+            static if (isObjectMemberMappingConfig!(Mappings[idx]))
+                enum string[] listMappedObjectMemberImpl = Mappings[idx].DestMember ~ Mappings[idx].DestMember.split(".") ~ listMappedObjectMemberImpl!(idx + 1);
             else
                 enum string[] listMappedObjectMemberImpl = listMappedObjectMemberImpl!(idx + 1); // skip
         else
@@ -285,7 +175,7 @@ package template listMappedObjectMember(Mappings...) if (allSatisfy!(isObjectMem
 */
 package template tryAutoMapUnmappedMembers(TSource, TDest, SourceConv, DestConv, Mappings...) if
     (isNamingConvention!SourceConv && isNamingConvention!DestConv &&
-    allSatisfy!(isObjectMemberMapping, Mappings))
+    allSatisfy!(isObjectMemberMappingConfig, Mappings))
 {
     import std.algorithm : canFind;
     import std.string : join;
