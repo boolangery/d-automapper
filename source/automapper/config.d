@@ -19,20 +19,29 @@ package template isConfigurationObject(T)
         isValueTransformer!T);
 }
 
-class ObjectMapperConfig(TSource, TDest, TSourceConv, TDestConv, bool Reverse, Mappings...) if
-    (isClassOrStruct!TSource && isClassOrStruct!TDest &&
+/**
+    `ObjectMapper` configuration.
+    Params:
+        TSrc = The type of source object.
+        TDst = The type of destination object.
+        TSourceConv = The type of source naming convention to use.
+        TDestConv = The type of source naming convention to use.
+        Rev = true if we must reverse this mapper.
+        Mps = A list of member mapping specialization.
+*/
+package class ObjectMapperConfig(TSrc, TDst, TSourceConv, TDestConv, bool Rev, Mps...) if
+    (isClassOrStruct!TSrc && isClassOrStruct!TDst &&
     isNamingConvention!TSourceConv && isNamingConvention!TDestConv &&
-    allSatisfy!(isObjectMemberMappingConfig, Mappings))
+    allSatisfy!(isObjectMemberMappingConfig, Mps))
 {
-    // TODO: to be removed
-    alias A = TSource;
-    alias B = TDest;
-    alias M = Mappings;
-    alias R = Reverse;
+    alias TSource = TSrc;
+    alias TDest = TDst;
+    alias Mappings = Mps;
+    alias Reverse = Rev;
 }
 
-
-template isObjectMapperConfig(T)
+/// Tell if it's an `ObjectMapperConfig`
+package template isObjectMapperConfig(T)
 {
     static if (is(T : ObjectMapperConfig!(TSource, TDest, TSourceConv, TDestConv, Reverse, Mappings),
         TSource, TDest, TSourceConv, TDestConv, bool Reverse, Mappings))
@@ -44,16 +53,53 @@ template isObjectMapperConfig(T)
         enum isObjectMapperConfig = false;
 }
 
+/// A struct that act like a flag to indicate that the mapper must be reversed.
+package struct ReverseMapConfig
+{
+    // do nothing
+}
+
+/// Tell if its a `ReverseMapConfig`
+package template isReverseMapConfig(T)
+{
+    enum isReverseMapConfig = is(T : ReverseMapConfig);
+}
+
+/// A struct to configure the naming convention used in the source object.
+package struct SourceNamingConventionConfig(T) if (isNamingConvention!T)
+{
+    alias Convention = T;
+}
+
+/// Tell if its a `SourceNamingConventionConfig`
+package template isSourceNamingConventionConfig(T)
+{
+    enum isSourceNamingConventionConfig = is(T : SourceNamingConventionConfig!C, C);
+}
+
+/// Precise the naming convention for dest object in a mapper
+package struct DestNamingConventionConfig(T) if (isNamingConvention!T)
+{
+    alias Convention = T;
+}
+
+/// Tell if its a `DestNamingConventionConfig`
+package template isDestNamingConventionConfig(T)
+{
+    enum isDestNamingConventionConfig = is(T : DestNamingConventionConfig!C, C);
+}
+
 /**
-    Base class for mapping a member in destination object.
+    Base class for create a config about a member in an object mapper.
     Template_Params:
-        MT = The member to map in the destination object
+        T = The member to map in the destination object
 */
 package class ObjectMemberMappingConfig(string T)
 {
     enum string DestMember = T;
 }
 
+/// Tell if its a `ObjectMemberMappingConfig`
 package template isObjectMemberMappingConfig(T)
 {
     enum bool isObjectMemberMappingConfig = (is(T: ObjectMemberMappingConfig!BM, string BM));
@@ -67,48 +113,31 @@ package enum ForMemberConfigType
 }
 
 /**
-    Used to specialized a member mapping.
-    Template_Params:
-        T = The member name in the destination object
-        F = The member name in the source object or a custom delegate
+    Used to configure object mapper. It tells to map a member from source object
+    to a member in dest object.
+    Params:
+        DestMember = The member name in the destination object
+        SourceMember = The member name in the source object or a custom delegate
 **/
-class ForMemberConfig(string T, alias F) : ObjectMemberMappingConfig!(T)
+package class ForMemberConfig(string DestMember, string SourceMember) : ObjectMemberMappingConfig!(DestMember)
 {
-    static assert(is(typeof(F) == string) || isCallable!F, ForMemberConfig.stringof ~
-        " Action must be a string to map a member to another member or a delegate.");
-
-    static if (is(typeof(F) == string))
-        private enum ForMemberConfigType Type = ForMemberConfigType.mapMember;
-    else
-        private enum ForMemberConfigType Type = ForMemberConfigType.mapDelegate;
-
-    alias Action = F;
+    enum ForMemberConfigType Type = ForMemberConfigType.mapMember;
+    alias Action = SourceMember;
 }
 
-///
-unittest
+/**
+    Used to configure object mapper. It tells to map a member from source object
+    to a user-defined delegate.
+    Params:
+        DestMember = The member name in the destination object
+        Delegate = A `DestMemberType delegate(TSource)`
+**/
+package class ForMemberConfig(string DestMember, alias Delegate) : ObjectMemberMappingConfig!(DestMember)
+    if (isCallable!Delegate)
 {
-    import automapper;
-
-    class A {
-        string foo;
-        int bar;
-    }
-
-    class B {
-        string qux;
-        int baz;
-        long ts;
-    }
-
-   auto am = MapperConfiguration!(
-        CreateMap!(A, B)
-            .ForMember!("qux", "foo")
-            .ForMember!("baz", "foo")
-            .ForMember!("ts", (A a) => 123456 ))
-                .createMapper();
+    enum ForMemberConfigType Type = ForMemberConfigType.mapDelegate;
+    alias Action = Delegate;
 }
-
 
 package template isForMember(T, ForMemberConfigType Type)
 {
@@ -126,33 +155,9 @@ package template isForMember(T, ForMemberConfigType Type)
     Template_Params:
         T = The member name in the destination object
 **/
-class IgnoreConfig(string T) : ObjectMemberMappingConfig!(T)
+package class IgnoreConfig(string T) : ObjectMemberMappingConfig!(T)
 {
     // do nothing
-}
-
-///
-unittest
-{
-    import automapper;
-
-    class A {
-        string foo;
-        int bar;
-    }
-
-    class B {
-        string qux;
-        int baz;
-        long ts;
-    }
-
-   auto am = MapperConfiguration!(
-        CreateMap!(A, B)
-            .ForMember!("qux", "foo")
-            .ForMember!("baz", "foo")
-            .Ignore!("ts"))
-                .createMapper();
 }
 
 /**
@@ -164,8 +169,6 @@ class MapperConfiguration(Configs...) // if (allSatisfy!(isConfigurationObject, 
     alias ObjectMappersConfig = Filter!(isObjectMapperConfig, Configs);
     alias TypesConverters = Filter!(isTypeConverter, Configs);
     alias ValueTransformers = Filter!(isValueTransformer, Configs);
-    // Add reversed mapper to user mapper
-    // alias FullObjectMappers = AliasSeq!(ObjectMappers, generateReversedMapper!ObjectMappers);
 
     static auto createMapper()
     {

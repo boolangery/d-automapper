@@ -1,5 +1,22 @@
 /**
     AutoMapper naming convention.
+
+    You can create your own naming convetion by defining a struct with this shape:
+
+    ----
+    struct MyConvention
+    {
+        string convert(string identifier)
+        {
+            ...
+        }
+
+        string convertBack(string myConvention)
+        {
+            ...
+        }
+    }
+    ----
 */
 module automapper.naming;
 

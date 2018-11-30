@@ -4,71 +4,15 @@
     This module aims to provide a compile-time generated way to
     create object mapper with no runtime overhead.
 
-        Rules for automatic mapping are detailed below:
+    Features:
 
-    Same_type_and_same_name:
+    $(UL
+	    $(LI Object and struct automatic mapping: See `AutoMapper`)
+	    $(LI Type converter: See `automapper.type.converter`)
+	    $(LI Value transformer: See `automapper.value.transformer`)
+	)
 
-	----
-	class A
-	{
-	    int foo;
-	}
-
-	class B
-	{
-	    int foo;
-	}
-
-	new AutoMapper!(
-        CreateMap!(A, B));
-	----
-
-    Same_name:
-
-	You need to define a type converter.
-
-	----
-	class A
-	{
-	    int foo;
-	}
-
-
-	class B
-	{
-	    long foo;
-	}
-
-	new AutoMapper!(
-        CreateMap!(int, long,
-            (int i) => i.to!long ),
-        CreateMap!(User, UserDTO));
-	----
-
-	Flattened_member_name:
-
-	A flattened member name is a camel case identifier like: fooBar
-
-	In the exemple below, B.fooBaz is automatically mapped to A.foo.bar
-	----
-	class Foo
-	{
-	    int baz;
-	}
-
-	class A
-	{
-	    Foo foo;
-	}
-
-	class B
-	{
-	    int fooBaz;
-	}
-
-	new AutoMapper!(
-        CreateMap!(A, B));
-	----
+    To get an AutoMapper instance you need to provide a `automapper.config.MapperConfiguration`.
 
 */
 module automapper;
@@ -95,7 +39,31 @@ private:
     private alias TypesConverters = MC.TypesConverters;
     private alias ValueTransformers = MC.ValueTransformers;
 
-    alias FullMapperConfigs = AliasSeq!(MC.ObjectMappersConfig, generateReversedMapperConfig!(MC.ObjectMappersConfig));
+    private template completeMapperConfiguration()
+    {
+        private template completeMapperConfigurationImpl(size_t idx) {
+            static if (idx < MC.ObjectMappersConfig.length) {
+                alias CurrentConfig = MC.ObjectMappersConfig[idx];
+
+                 // trick to get config specialization
+                static if (is(CurrentConfig : ObjectMapperConfig!(TSource, TDest, TSourceConv, TDestConv, Reverse, Mappings),
+                    TSource, TDest, TSourceConv, TDestConv, bool Reverse, Mappings...)) {
+
+                    alias NewConfig = tryAutoMapUnmappedMembers!(TSource, TDest, TSourceConv, TDestConv, Mappings);
+                    alias completeMapperConfigurationImpl = AliasSeq!(
+                        ObjectMapperConfig!(TSource, TDest, TSourceConv, TDestConv, Reverse, NewConfig),
+                        completeMapperConfigurationImpl!(idx + 1));
+                }
+            }
+            else
+                alias completeMapperConfigurationImpl = AliasSeq!();
+        }
+
+        alias completeMapperConfiguration = completeMapperConfigurationImpl!0;
+    }
+
+    alias CompletedConfig = completeMapperConfiguration!();
+    alias FullMapperConfigs = AliasSeq!(CompletedConfig, generateReversedMapperConfig!(CompletedConfig));
 
     private template buildMapper()
     {
@@ -117,7 +85,7 @@ private:
     alias FullMappers = buildMapper!();
 
 
-    /// run-time
+    // run-time
     private string runtimeUniqueMapperIdentifier(TypeInfo a, TypeInfo b)
     {
         import std.string : replace;
@@ -169,54 +137,54 @@ public:
     }
 
     /**
-        Map a type to another type.
+        Map an object to another.
         Params:
-            a = The type to map
+            source = The type to map
         Retuns:
-            The mapped type
+            The mapped object
     */
-    B map(B, A)(A a) if (isClassOrStruct!A && isClassOrStruct!B)
+    TDest map(TDest, TSource)(TSource source) if (isClassOrStruct!TSource && isClassOrStruct!TDest)
     {
         template isRightMapper(T) {
-            enum bool isRightMapper = (isInstanceOf!(ObjectMapper, T) && is(T.A : A) && is(T.B : B));
+            enum bool isRightMapper = (isInstanceOf!(ObjectMapper, T) && is(T.TSource : TSource) && is(T.TDest : TDest));
         }
 
         alias M = Filter!(isRightMapper, FullMappers);
 
         static if (M.length is 0)
-            static assert(false, "No mapper found for mapping from " ~ A.stringof ~ " to " ~ B.stringof);
+            static assert(false, "No mapper found for mapping from " ~ TSource.stringof ~ " to " ~ TDest.stringof);
         else
-            return M[0].map(a, this);
+            return M[0].map(source, this);
     }
 
     /// ditto
-    B map(B, A)(A a) if (isArray!A && isArray!B)
+    TDest map(TDest, TSource)(TSource source) if (isArray!TSource && isArray!TDest)
     {
-        B ret = B.init;
+        TDest ret = TDest.init;
 
-        foreach(ForeachType!A elem; a) {
-            static if (is(ForeachType!A == ForeachType!B))
+        foreach(ForeachType!TSource elem; source) {
+            static if (is(ForeachType!TSource == ForeachType!TDest))
                 ret ~= elem; // same array type, just copy
             else
-                ret ~= this.map!(ForeachType!B)(elem); // else map
+                ret ~= this.map!(ForeachType!TDest)(elem); // else map
         }
 
         return ret;
     }
 
     /// ditto
-    B map(B, A)(A a) if (!isArray!A && !isArray!B && (!isClassOrStruct!A || !isClassOrStruct!B))
+    TDest map(TDest, TSource)(TSource source) if (!isArray!TSource && !isArray!TDest && (!isClassOrStruct!TSource || !isClassOrStruct!TDest))
     {
         template isRightConverter(T) {
-            enum bool isRightConverter = is(T : ITypeConverter!(A, B));
+            enum bool isRightConverter = is(T : ITypeConverter!(TSource, TDest));
         }
 
         alias M = Filter!(isRightConverter, TypesConverters);
 
         static if (M.length is 0)
-            static assert(false, "No type converter found for mapping from " ~ A.stringof ~ " to " ~ B.stringof);
+            static assert(false, "No type converter found for mapping from " ~ TSource.stringof ~ " to " ~ TDest.stringof);
         else
-            return __traits(getMember, this, uniqueConverterIdentifier!M).convert(a);
+            return __traits(getMember, this, uniqueConverterIdentifier!M).convert(source);
     }
 
     TValue transform(TValue)(TValue value)
@@ -287,7 +255,7 @@ unittest
     assert(dto.addressZipcode == user.address.zipcode);
 }
 
-// Naming conventions
+/// Naming conventions
 unittest
 {
     static class A {
@@ -312,7 +280,7 @@ unittest
     assert(a.data_processor == b.dataProcessor);
 }
 
-// Type converters
+/// Type converters
 unittest
 {
     import std.datetime;
@@ -351,7 +319,7 @@ unittest
     assert(SysTime(a.timestamp) == b.timestamp);
 }
 
-// struct
+/// struct
 unittest
 {
     static struct A {
@@ -371,7 +339,7 @@ unittest
     assert(b.foo == a.foo);
 }
 
-// reverse flattening
+/// reverse flattening
 unittest
 {
     static class Address {
@@ -396,7 +364,7 @@ unittest
     assert(b.addressZipcode == a.address.zipcode);
 }
 
-// array
+/// array
 unittest
 {
     import std.algorithm.comparison : equal;
@@ -440,7 +408,7 @@ unittest
     assert(b.data[1].id == "foz");
 }
 
-// auto
+/// auto
 unittest
 {
     static class Address {
@@ -474,7 +442,7 @@ unittest
 
 }
 
-// flattening
+/// flattening
 unittest
 {
     static class Address {
@@ -499,7 +467,7 @@ unittest
     assert(b.addressZipcode == a.address.zipcode);
 }
 
-// nest
+/// nest
 unittest
 {
     static class Address {

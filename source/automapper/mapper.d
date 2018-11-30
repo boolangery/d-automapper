@@ -1,4 +1,4 @@
-/**
+/*
     Contains class/struct mapper.
 */
 module automapper.mapper;
@@ -15,6 +15,7 @@ import automapper.config;
 */
 package class ObjectMapper(MapperConfig) if (isObjectMapperConfig!MapperConfig)
 {
+    // trick to get config specialization
     static if (is(MapperConfig : ObjectMapperConfig!(TSource, TDest, TSourceConv, TDestConv, Reverse, Mappings),
         TSource, TDest, TSourceConv, TDestConv, bool Reverse, Mappings...))
     {
@@ -96,66 +97,24 @@ package template isObjectMapper(T)
 
 /**
     It take a list of Mapper, and return a new list of reversed mapper if needed.
-    e.g. for CreateMap!(A, B, ForMember("foo", "bar")), it create CreateMap!(B, A, ForMember("bar", "foo")
 */
-/*
-template generateReversedMapper(Mappers...) if (allSatisfy!(isObjectMapper, Mappers))
-{
-    import automapper.api;
-
-    private template generateReversedMapperImpl(size_t idx) {
-        static if (idx < Mappers.length) {
-            alias M = Mappers[idx];
-
-            private template reverseMapping(size_t midx) {
-                static if (midx < M.Mappings.length) {
-                    alias MP = M.Mappings[midx];
-
-                    static if (isForMember!(MP, ForMemberConfigType.mapMember)) {
-                        alias reverseMapping = AliasSeq!(ForMemberConfig!(MP.Action, MP.DestMember), reverseMapping!(midx + 1));
-                    }
-                    else static if (isForMember!(MP, ForMemberConfigType.mapDelegate)) {
-                        static assert(false, "Cannot reverse mapping '" ~ M.A.stringof ~ " -> " ~ M.B.stringof ~
-                            "' because it use a custom user delegate: " ~ MP.stringof);
-                    }
-                    else
-                        alias reverseMapping = reverseMapping!(midx + 1); // continue
-                }
-                else
-                    alias reverseMapping = AliasSeq!();
-            }
-
-            static if (M.MustBeReversed) // reverse it if needed
-                alias generateReversedMapperImpl = AliasSeq!(CreateMap!(M.B, M.A, reverseMapping!0),
-                    generateReversedMapperImpl!(idx + 1));
-            else
-                alias generateReversedMapperImpl = generateReversedMapperImpl!(idx + 1); // continue
-        }
-        else
-            alias generateReversedMapperImpl = AliasSeq!();
-    }
-
-    alias generateReversedMapper = generateReversedMapperImpl!0;
-}
-*/
-
-template generateReversedMapperConfig(MapperConfigs...) if (allSatisfy!(isObjectMapperConfig, MapperConfigs))
+package template generateReversedMapperConfig(MapperConfigs...) if (allSatisfy!(isObjectMapperConfig, MapperConfigs))
 {
     import automapper.api;
 
     private template generateReversedMapperConfigImpl(size_t idx) {
         static if (idx < MapperConfigs.length) {
-            alias M = MapperConfigs[idx];
+            alias Config = MapperConfigs[idx];
 
             private template reverseMapping(size_t midx) {
-                static if (midx < M.M.length) {
-                    alias MP = M.M[midx];
+                static if (midx < Config.Mappings.length) {
+                    alias MP = Config.Mappings[midx];
 
                     static if (isForMember!(MP, ForMemberConfigType.mapMember)) {
                         alias reverseMapping = AliasSeq!(ForMemberConfig!(MP.Action, MP.DestMember), reverseMapping!(midx + 1));
                     }
                     else static if (isForMember!(MP, ForMemberConfigType.mapDelegate)) {
-                        static assert(false, "Cannot reverse mapping '" ~ M.A.stringof ~ " -> " ~ M.B.stringof ~
+                        static assert(false, "Cannot reverse mapping '" ~ Config.TSource.stringof ~ " -> " ~ Config.TDest.stringof ~
                             "' because it use a custom user delegate: " ~ MP.stringof);
                     }
                     else
@@ -165,8 +124,8 @@ template generateReversedMapperConfig(MapperConfigs...) if (allSatisfy!(isObject
                     alias reverseMapping = AliasSeq!();
             }
 
-            static if (M.R) // reverse it if needed
-                alias generateReversedMapperConfigImpl = AliasSeq!(CreateMap!(M.B, M.A, reverseMapping!0),
+            static if (Config.Reverse) // reverse it if needed
+                alias generateReversedMapperConfigImpl = AliasSeq!(CreateMap!(Config.TDest, Config.TSource, reverseMapping!0),
                     generateReversedMapperConfigImpl!(idx + 1));
             else
                 alias generateReversedMapperConfigImpl = generateReversedMapperConfigImpl!(idx + 1); // continue
@@ -211,8 +170,8 @@ package template listMappedObjectMember(Mappings...) if (allSatisfy!(isObjectMem
           e.g: A.foo.bar is mapped to B.fooBar
 
     Params:
-        A = The type to map from
-        B = The type to map to
+        TSource = The type to map from
+        TDest = The type to map to
         Mappings = a list of ObjectMemberMapping
     Returns:
         A list of completed ObjectMemberMapping
