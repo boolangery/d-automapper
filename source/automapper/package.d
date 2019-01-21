@@ -33,20 +33,21 @@ public import automapper.naming;
 */
 class AutoMapper(MC) if (is(MC : MapperConfiguration!(C), C))
 {
-    import std.format;
+    import std.format : format;
 
 private:
-    private alias TypesConverters = MC.TypesConverters;
-    private alias ValueTransformers = MC.ValueTransformers;
+    alias TypesConverters = MC.TypesConverters;
+    alias ValueTransformers = MC.ValueTransformers;
 
-    private template completeMapperConfiguration()
+    template completeMapperConfiguration()
     {
         private template completeMapperConfigurationImpl(size_t idx) {
             static if (idx < MC.ObjectMappersConfig.length) {
                 alias CurrentConfig = MC.ObjectMappersConfig[idx];
 
                  // trick to get config specialization
-                static if (is(CurrentConfig : ObjectMapperConfig!(TSource, TDest, TSourceConv, TDestConv, Reverse, Mappings),
+                static if (is(CurrentConfig : ObjectMapperConfig!(TSource, TDest, TSourceConv, 
+                    TDestConv, Reverse, Mappings),
                     TSource, TDest, TSourceConv, TDestConv, bool Reverse, Mappings...)) {
 
                     alias NewConfig = tryAutoMapUnmappedMembers!(TSource, TDest, TSourceConv, TDestConv, Mappings);
@@ -65,7 +66,7 @@ private:
     alias CompletedConfig = completeMapperConfiguration!();
     alias FullMapperConfigs = AliasSeq!(CompletedConfig, generateReversedMapperConfig!(CompletedConfig));
 
-    private template buildMapper()
+    template buildMapper()
     {
         private template buildMapperImpl(size_t idx) {
             static if (idx < FullMapperConfigs.length) {
@@ -86,7 +87,7 @@ private:
 
 
     // run-time
-    private string runtimeUniqueMapperIdentifier(TypeInfo a, TypeInfo b)
+    string runtimeUniqueMapperIdentifier(TypeInfo a, TypeInfo b)
     {
         import std.string : replace;
 
@@ -94,22 +95,24 @@ private:
     }
 
     /// compile-time
-    private template uniqueConverterIdentifier(T)
+    template uniqueConverterIdentifier(T)
     {
         import std.string : replace;
         static if (is(T : ITypeConverter!(A, B), A, B))
-            enum string uniqueConverterIdentifier = ("conv_" ~ fullyQualifiedName!A ~ "_" ~ fullyQualifiedName!B).replace(".", "_");
+            enum string uniqueConverterIdentifier = ("conv_" ~ fullyQualifiedName!A ~ "_" ~ fullyQualifiedName!B)
+                .replace(".", "_");
     }
 
     // declare private registered ITypeConverter
     static foreach (Conv; TypesConverters) {
         static if (is(Conv : ITypeConverter!(A, B), A, B)) {
-            mixin(q{private ITypeConverter!(%s, %s) %s; }.format(fullyQualifiedName!A, fullyQualifiedName!B, uniqueConverterIdentifier!Conv));
+            mixin(q{private ITypeConverter!(%s, %s) %s; }.format(fullyQualifiedName!A, fullyQualifiedName!B,
+                uniqueConverterIdentifier!Conv));
         }
     }
 
     /// compile-time
-    private template uniqueTransformerIdentifier(A)
+    template uniqueTransformerIdentifier(A)
     {
         import std.string : replace;
         enum string uniqueTransformerIdentifier = ("trans" ~ fullyQualifiedName!A).replace(".", "_");
@@ -124,6 +127,7 @@ private:
     }
 
 public:
+    ///
     this()
     {
         // instanciate registered ITypeConverter
@@ -146,7 +150,8 @@ public:
     TDest map(TDest, TSource)(TSource source) if (isClassOrStruct!TSource && isClassOrStruct!TDest)
     {
         template isRightMapper(T) {
-            enum bool isRightMapper = (isInstanceOf!(ObjectMapper, T) && is(T.TSource : TSource) && is(T.TDest : TDest));
+            enum bool isRightMapper = (isInstanceOf!(ObjectMapper, T) && is(T.TSource : TSource) && 
+                is(T.TDest : TDest));
         }
 
         alias M = Filter!(isRightMapper, FullMappers);
@@ -173,7 +178,8 @@ public:
     }
 
     /// ditto
-    TDest map(TDest, TSource)(TSource source) if (!isArray!TSource && !isArray!TDest && (!isClassOrStruct!TSource || !isClassOrStruct!TDest))
+    TDest map(TDest, TSource)(TSource source) if 
+        (!isArray!TSource && !isArray!TDest && (!isClassOrStruct!TSource || !isClassOrStruct!TDest))
     {
         template isRightConverter(T) {
             enum bool isRightConverter = is(T : ITypeConverter!(TSource, TDest));
@@ -182,11 +188,13 @@ public:
         alias M = Filter!(isRightConverter, TypesConverters);
 
         static if (M.length is 0)
-            static assert(false, "No type converter found for mapping from " ~ TSource.stringof ~ " to " ~ TDest.stringof);
+            static assert(false, "No type converter found for mapping from " ~ TSource.stringof ~ " to " ~ 
+                TDest.stringof);
         else
             return __traits(getMember, this, uniqueConverterIdentifier!M).convert(source);
     }
 
+    ///
     TValue transform(TValue)(TValue value)
     {
         template isRightTransformer(T) {
@@ -207,10 +215,10 @@ public:
 ///
 unittest
 {
-    import std.datetime;
+    import std.datetime : SysTime;
 
     static class Address {
-        long zipcode = 42420;
+        long zipcode = 42_420;
         string city = "London";
     }
 
@@ -248,7 +256,7 @@ unittest
             .createMapper();
 
     auto user = new User();
-    UserDTO dto = am.map!UserDTO(user);
+    const UserDTO dto = am.map!UserDTO(user);
 
     assert(dto.fullName == user.name ~ " " ~ user.lastName);
     assert(dto.addressCity == user.address.city);
@@ -275,7 +283,7 @@ unittest
                 .createMapper();
 
     A a = new A();
-    B b = am.map!B(a);
+    const B b = am.map!B(a);
     assert(a.foo_bar_baz == b.fooBarBaz);
     assert(a.data_processor == b.dataProcessor);
 }
@@ -283,10 +291,10 @@ unittest
 /// Type converters
 unittest
 {
-    import std.datetime;
+    import std.datetime: SysTime;
 
     static class A {
-        long timestamp = 1542873605;
+        long timestamp = 1_542_873_605;
     }
 
     static class B {
@@ -335,7 +343,7 @@ unittest
             .createMapper();
 
     A a;
-    B b = am.map!B(a);
+    const B b = am.map!B(a);
     assert(b.foo == a.foo);
 }
 
@@ -351,7 +359,7 @@ unittest
     }
 
     static class B {
-        int addressZipcode = 74000;
+        int addressZipcode = 74_000;
     }
 
     auto am = MapperConfiguration!(
@@ -360,7 +368,7 @@ unittest
             .createMapper();
 
     B b = new B();
-    A a = am.map!A(b);
+    const A a = am.map!A(b);
     assert(b.addressZipcode == a.address.zipcode);
 }
 
@@ -394,7 +402,7 @@ unittest
         CreateMap!(A, B))
             .createMapper();
 
-    auto am2 = MapperConfiguration!(
+    MapperConfiguration!(
         CreateMap!(Data, DataDTO),
         CreateMap!(A, B))
             .createMapper();
@@ -412,7 +420,7 @@ unittest
 unittest
 {
     static class Address {
-        long zipcode = 74000;
+        long zipcode = 74_000;
         string city = "unknown";
     }
 
@@ -434,7 +442,7 @@ unittest
             .createMapper();
 
     auto user = new User();
-    UserDTO dto = am.map!UserDTO(user);
+    const UserDTO dto = am.map!UserDTO(user);
 
     assert(dto.fullName == user.name ~ " " ~ user.lastName);
     assert(dto.addressCity == user.address.city);
@@ -446,7 +454,7 @@ unittest
 unittest
 {
     static class Address {
-        int zipcode = 74000;
+        int zipcode = 74_000;
     }
 
     static class A {
@@ -463,7 +471,7 @@ unittest
             .createMapper();
 
     A a = new A();
-    B b = am.map!B(a);
+    const B b = am.map!B(a);
     assert(b.addressZipcode == a.address.zipcode);
 }
 
@@ -471,7 +479,7 @@ unittest
 unittest
 {
     static class Address {
-        int zipcode = 74000;
+        int zipcode = 74_000;
     }
 
     static class AddressDTO {
@@ -496,7 +504,7 @@ unittest
                 .createMapper();
 
     A a = new A();
-    B b = am.map!B(a);
+    const B b = am.map!B(a);
     assert(b.address.zipcode == a.address.zipcode);
 
     // test reversed mapper
@@ -529,7 +537,7 @@ unittest
 
 
     A a = new A();
-    B b = am.map!B(a);
+    const B b = am.map!B(a);
     assert(b.str == a.str);
     assert(a.foo == a.foo);
     assert(b.mod == "modified");

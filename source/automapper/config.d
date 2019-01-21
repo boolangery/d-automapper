@@ -170,6 +170,7 @@ class MapperConfiguration(Configs...) // if (allSatisfy!(isConfigurationObject, 
     alias TypesConverters = Filter!(isTypeConverter, Configs);
     alias ValueTransformers = Filter!(isValueTransformer, Configs);
 
+    ///
     static auto createMapper()
     {
         import automapper;

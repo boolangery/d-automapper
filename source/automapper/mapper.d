@@ -52,15 +52,18 @@ package class ObjectMapper(MapperConfig) if (isObjectMapperConfig!MapperConfig)
             // generate mapping code
             static foreach(Mapping; AutoMapping) {
                 static if (isObjectMemberMappingConfig!Mapping) {
-                    static assert(hasNestedMember!(B, Mapping.DestMember), Mapping.DestMember ~ " is not a member of " ~ B.stringof);
+                    static assert(hasNestedMember!(B, Mapping.DestMember), Mapping.DestMember ~ " is not a member of " ~ 
+                        B.stringof);
 
                     // ForMember - mapMember
                     static if (isForMember!(Mapping, ForMemberConfigType.mapMember)) {
-                        static assert(hasNestedMember!(A, Mapping.Action), Mapping.Action ~ " is not a member of " ~ A.stringof);
+                        static assert(hasNestedMember!(A, Mapping.Action), Mapping.Action ~ " is not a member of " ~ 
+                            A.stringof);
 
                         // same type
                         static if (is(MemberType!(B, Mapping.DestMember) == MemberType!(A, Mapping.Action))) {
-                            mixin(GetMember!(b, Mapping.DestMember)) = am.transform(mixin(GetMember!(a, Mapping.Action))); // b.member = a. member;
+                            mixin(GetMember!(b, Mapping.DestMember)) = 
+                                am.transform(mixin(GetMember!(a, Mapping.Action))); // b.member = a. member;
                         }
                         // different type: map
                         else {
@@ -111,11 +114,12 @@ package template generateReversedMapperConfig(MapperConfigs...) if (allSatisfy!(
                     alias MP = Config.Mappings[midx];
 
                     static if (isForMember!(MP, ForMemberConfigType.mapMember)) {
-                        alias reverseMapping = AliasSeq!(ForMemberConfig!(MP.Action, MP.DestMember), reverseMapping!(midx + 1));
+                        alias reverseMapping = AliasSeq!(ForMemberConfig!(MP.Action, MP.DestMember), 
+                            reverseMapping!(midx + 1));
                     }
                     else static if (isForMember!(MP, ForMemberConfigType.mapDelegate)) {
-                        static assert(false, "Cannot reverse mapping '" ~ Config.TSource.stringof ~ " -> " ~ Config.TDest.stringof ~
-                            "' because it use a custom user delegate: " ~ MP.stringof);
+                        static assert(false, "Cannot reverse mapping '" ~ Config.TSource.stringof ~ " -> " ~ 
+                            Config.TDest.stringof ~ "' because it use a custom user delegate: " ~ MP.stringof);
                     }
                     else
                         alias reverseMapping = reverseMapping!(midx + 1); // continue
@@ -125,7 +129,8 @@ package template generateReversedMapperConfig(MapperConfigs...) if (allSatisfy!(
             }
 
             static if (Config.Reverse) // reverse it if needed
-                alias generateReversedMapperConfigImpl = AliasSeq!(CreateMap!(Config.TDest, Config.TSource, reverseMapping!0),
+                alias generateReversedMapperConfigImpl = AliasSeq!(CreateMap!(Config.TDest, Config.TSource, 
+                    reverseMapping!0),
                     generateReversedMapperConfigImpl!(idx + 1));
             else
                 alias generateReversedMapperConfigImpl = generateReversedMapperConfigImpl!(idx + 1); // continue
@@ -151,7 +156,8 @@ package template listMappedObjectMember(Mappings...) if (allSatisfy!(isObjectMem
     private template listMappedObjectMemberImpl(size_t idx) {
         static if (idx < Mappings.length)
             static if (isObjectMemberMappingConfig!(Mappings[idx]))
-                enum string[] listMappedObjectMemberImpl = Mappings[idx].DestMember ~ Mappings[idx].DestMember.split(".") ~ listMappedObjectMemberImpl!(idx + 1);
+                enum string[] listMappedObjectMemberImpl = Mappings[idx].DestMember ~ 
+                    Mappings[idx].DestMember.split(".") ~ listMappedObjectMemberImpl!(idx + 1);
             else
                 enum string[] listMappedObjectMemberImpl = listMappedObjectMemberImpl!(idx + 1); // skip
         else

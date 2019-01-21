@@ -57,7 +57,8 @@ template hasNestedMember(T, string members)
     static if (is(T t == T)) {
         static if (memberSplited.length > 1)
             static if (__traits(hasMember, T, memberSplited[0]))
-                enum bool hasNestedMember = hasNestedMember!(MemberType!(T, memberSplited[0]), memberSplited[1..$].join("."));
+                enum bool hasNestedMember = hasNestedMember!(MemberType!(T, memberSplited[0]), memberSplited[1..$]
+                    .join("."));
             else
                 enum bool hasNestedMember = false;
         else
@@ -116,9 +117,10 @@ unittest
     static assert(!isPublicMember!(A, "baz"));
 }
 
+///
 string GetMember(alias T, string member)()
 {
-    import std.format;
+    import std.format : format;
     return (q{%s.%s}.format(T.stringof, member));
 }
 
@@ -145,7 +147,7 @@ template ClassMembers(T) if (isClassOrStruct!T)
 {
     import std.algorithm : canFind;
 
-    enum MembersToIgnore = [__traits(allMembers, Object)];
+    static immutable MembersToIgnore = [__traits(allMembers, Object)];
 
     private template ClassMembersImpl(size_t idx)
     {

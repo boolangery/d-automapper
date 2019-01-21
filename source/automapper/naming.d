@@ -121,6 +121,7 @@ unittest
     static assert(LowerUnderscoreNamingConvention().convertBack("foo") == "foo");
 }
 
+///
 template isNamingConvention(T)
 {
     enum isNamingConvention = (

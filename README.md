@@ -3,13 +3,6 @@
 
 It use compile-time generated mapper to try to avoid any overhead.
 
-For 50 000 iteration:
-
-```bash
-AutoMapper: 10 ms, 913 μs, and 1 hnsec
-Manual    : 10 ms, 109 μs, and 5 hnsecs
-```
-
 You can run the benchmark located in `tests/benchmark`:
 
 ```bash
