@@ -25,42 +25,85 @@ public import automapper.type.converter;
 public import automapper.mapper;
 public import automapper.naming;
 
+
 class RuntimeAutoMapper
 {
     public Object[TypeInfo] runtimeMappers;
     public Object[TypeInfo] transformers;
     public Object[TypeInfo] converters;
 
+    this()
+    {
+
+    }
+
     TDest map(TDest, TSource)(TSource value)
     {
+        // enum id = uniquePairIdentifier!(TSource, TDest);
         alias I = IMapper!(TSource, TDest);
-        TypeInfo info = typeid(I);
+        auto info = typeid(I);
 
         Object* mapper = (info in runtimeMappers);
 
         if (mapper !is null) {
-            return (cast(I) mapper).map(value);
+            return (cast(I) *mapper).map(value);
         }
         else {
-            throw new Exception(I.stringof);
+            throw new Exception("No mapper found for mapping from " ~ TSource.stringof ~ " to " ~ TDest.stringof);
         }
     }
 
     TValue transform(TValue)(TValue value)
     {
+        // enum id = uniqueTypeIdentifier!TValue;
         alias I = IValueTransformer!TValue;
-        TypeInfo info = typeid(I);
+        auto info = typeid(I);
 
         Object* transformer = (info in transformers);
 
         if (transformer !is null) {
-            return (cast(I) transformer).transform(value);
+            return (cast(I) *transformer).transform(value);
         }
         else {
-            throw new Exception(I.stringof);
+            return value;
         }
     }
 }
+
+unittest
+{
+    import automapper;
+
+    static class A {
+        string foo = "foo";
+    }
+
+    static class B {
+        string bar;
+    }
+
+    auto am = MapperConfiguration!(
+        CreateMap!(A, B)
+            .ForMember!("bar", "foo"))
+                .createMapper().createRuntimeContext();
+
+    const auto b = am.map!B(new A());
+}
+
+/// compile-time
+package template uniquePairIdentifier(TS, TD)
+{
+    import std.string : replace;
+    enum string uniquePairIdentifier = ("pair_" ~ fullyQualifiedName!TS ~ "_" ~ fullyQualifiedName!TD);
+}
+
+/// compile-time
+package template uniqueTypeIdentifier(A)
+{
+    import std.string : replace;
+    enum string uniqueTypeIdentifier = ("trans" ~ fullyQualifiedName!A).replace(".", "_");
+}
+
 
 /**
     AutoMapper entry point.
@@ -162,13 +205,9 @@ private:
         }
     }
 
-    RuntimeAutoMapper _context;
-
 public:
-    @property auto runtimeContext() { return _context; }
-
     ///
-    this(bool runtime = false)
+    this()
     {
         // instanciate registered ITypeConverter
         static foreach (Conv; TypesConverters)
@@ -178,23 +217,28 @@ public:
         static foreach (Trans; ValueTransformers)
             static if (is(Trans : IValueTransformer!TValue, TValue))
                 mixin(q{%s = new Trans(); }.format(uniqueTransformerIdentifier!TValue));
-
-        if (runtime) {
-            _context = new RuntimeAutoMapper();
-
-            // fill mapper
-            static foreach (Mapper; FullMappers)
-                _context.runtimeMappers[typeid(IMapper!(Mapper.TS, Mapper.TD))] = new Mapper(_context);
-            // fill converters
-            static foreach (Conv; TypesConverters)
-                static if (is(Conv : ITypeConverter!(TSource, TDest), TSource, TDest))
-                    _context.converters[typeid(ITypeConverter!(TSource, TDest))] = new Conv();
-            // fill transformers
-            static foreach (Trans; ValueTransformers)
-                static if (is(Trans : IValueTransformer!TValue, TValue))
-                    _context.transformers[typeid(IValueTransformer!TValue)] = new Trans();
-        }
     }
+
+    auto createRuntimeContext()
+    {
+        auto context = new RuntimeAutoMapper();
+
+        // fill mapper
+        static foreach (Mapper; FullMappers)
+            context.runtimeMappers[typeid(IMapper!(Mapper.TS, Mapper.TD))] = new Mapper(context);
+
+        // fill converters
+        static foreach (Conv; TypesConverters)
+            static if (is(Conv : ITypeConverter!(TSource, TDest), TSource, TDest))
+                context.converters[typeid(ITypeConverter!(TSource, TDest))] = new Conv();
+
+        // fill transformers
+        static foreach (Trans; ValueTransformers)
+            static if (is(Trans : IValueTransformer!TValue, TValue))
+                context.transformers[typeid(IValueTransformer!TValue)] = new Trans();
+
+        return context;
+    }   
 
     /**
         Map an object to another.
