@@ -26,85 +26,6 @@ public import automapper.mapper;
 public import automapper.naming;
 
 
-class RuntimeAutoMapper
-{
-    public Object[TypeInfo] runtimeMappers;
-    public Object[TypeInfo] transformers;
-    public Object[TypeInfo] converters;
-
-    this()
-    {
-
-    }
-
-    TDest map(TDest, TSource)(TSource value)
-    {
-        // enum id = uniquePairIdentifier!(TSource, TDest);
-        alias I = IMapper!(TSource, TDest);
-        auto info = typeid(I);
-
-        Object* mapper = (info in runtimeMappers);
-
-        if (mapper !is null) {
-            return (cast(I) *mapper).map(value);
-        }
-        else {
-            throw new Exception("No mapper found for mapping from " ~ TSource.stringof ~ " to " ~ TDest.stringof);
-        }
-    }
-
-    TValue transform(TValue)(TValue value)
-    {
-        // enum id = uniqueTypeIdentifier!TValue;
-        alias I = IValueTransformer!TValue;
-        auto info = typeid(I);
-
-        Object* transformer = (info in transformers);
-
-        if (transformer !is null) {
-            return (cast(I) *transformer).transform(value);
-        }
-        else {
-            return value;
-        }
-    }
-}
-
-unittest
-{
-    import automapper;
-
-    static class A {
-        string foo = "foo";
-    }
-
-    static class B {
-        string bar;
-    }
-
-    auto am = MapperConfiguration!(
-        CreateMap!(A, B)
-            .ForMember!("bar", "foo"))
-                .createMapper().createRuntimeContext();
-
-    const auto b = am.map!B(new A());
-}
-
-/// compile-time
-package template uniquePairIdentifier(TS, TD)
-{
-    import std.string : replace;
-    enum string uniquePairIdentifier = ("pair_" ~ fullyQualifiedName!TS ~ "_" ~ fullyQualifiedName!TD);
-}
-
-/// compile-time
-package template uniqueTypeIdentifier(A)
-{
-    import std.string : replace;
-    enum string uniqueTypeIdentifier = ("trans" ~ fullyQualifiedName!A).replace(".", "_");
-}
-
-
 /**
     AutoMapper entry point.
 
@@ -310,6 +231,84 @@ public:
         else
             return __traits(getMember, this, uniqueTransformerIdentifier!TValue).transform(value);
     }
+}
+
+/**
+    This is a non templated slower version of AutoMapper.
+*/
+class RuntimeAutoMapper
+{
+    public Object[TypeInfo] runtimeMappers;
+    public Object[TypeInfo] transformers;
+    public Object[TypeInfo] converters;
+
+    IMapper!(TSource, TDest) getMapper(TDest, TSource)()
+    {
+        alias I = IMapper!(TSource, TDest);
+        auto info = typeid(I);
+
+        Object* mapper = (info in runtimeMappers);
+
+        if (mapper !is null) {
+            return (cast(I) *mapper);
+        }
+        else {
+            return null;
+        }
+    }
+
+    TDest map(TDest, TSource)(TSource value)
+    {
+        // enum id = uniquePairIdentifier!(TSource, TDest);
+        alias I = IMapper!(TSource, TDest);
+        auto info = typeid(I);
+
+        Object* mapper = (info in runtimeMappers);
+
+        if (mapper !is null) {
+            return (cast(I) *mapper).map(value);
+        }
+        else {
+            throw new Exception("No mapper found for mapping from " ~ TSource.stringof ~ " to " ~ TDest.stringof);
+        }
+    }
+
+    TValue transform(TValue)(TValue value)
+    {
+        // enum id = uniqueTypeIdentifier!TValue;
+        alias I = IValueTransformer!TValue;
+        auto info = typeid(I);
+
+        Object* transformer = (info in transformers);
+
+        if (transformer !is null) {
+            return (cast(I) *transformer).transform(value);
+        }
+        else {
+            return value;
+        }
+    }
+}
+
+///
+unittest
+{
+    import automapper;
+
+    static class A {
+        string foo = "foo";
+    }
+
+    static class B {
+        string bar;
+    }
+
+    auto am = MapperConfiguration!(
+        CreateMap!(A, B)
+            .ForMember!("bar", "foo"))
+                .createMapper().createRuntimeContext();
+
+    const auto b = am.map!B(new A());
 }
 
 
