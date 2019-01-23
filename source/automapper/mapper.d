@@ -8,13 +8,30 @@ import automapper.naming;
 import automapper.type.converter;
 import automapper.value.transformer;
 import automapper.config;
+import automapper : RuntimeAutoMapper;
+
+
+interface IMapper(TSource, TDest)
+{
+    TDest map(TSource value);
+}
 
 
 /**
     Allow to create compile-time generated class and struct mapper.
 */
-package class ObjectMapper(MapperConfig) if (isObjectMapperConfig!MapperConfig)
+package class ObjectMapper(MapperConfig) if (isObjectMapperConfig!MapperConfig) : IMapper!(MapperConfig.TSource, MapperConfig.TDest)
 {
+    alias TS = MapperConfig.TSource;
+    alias TD = MapperConfig.TDest;
+
+    private RuntimeAutoMapper _automapper;
+
+    this(RuntimeAutoMapper automapper)
+    {
+        _automapper = automapper;
+    }
+
     // trick to get config specialization
     static if (is(MapperConfig : ObjectMapperConfig!(TSource, TDest, TSourceConv, TDestConv, Reverse, Mappings),
         TSource, TDest, TSourceConv, TDestConv, bool Reverse, Mappings...))
@@ -68,6 +85,74 @@ package class ObjectMapper(MapperConfig) if (isObjectMapperConfig!MapperConfig)
                         // different type: map
                         else {
                             __traits(getMember, b, Mapping.DestMember) = am.map!(
+                                MemberType!(B, Mapping.DestMember),
+                                MemberType!(A, Mapping.Action))(__traits(getMember, a, Mapping.Action)); // b.member = context.map(a.member);
+                        }
+                    }
+                    // ForMember - mapDelegate
+                    else static if (isForMember!(Mapping, ForMemberConfigType.mapDelegate)) {
+                        // static assert return type
+                        static assert(is(ReturnType!(Mapping.Action) == MemberType!(B, Mapping.DestMember)),
+                            "the func in " ~ ForMember.stringof ~ " must return a '" ~
+                            MemberType!(B, Mapping.DestMember).stringof ~ "' like " ~ B.stringof ~
+                            "." ~ Mapping.DestMember);
+                        // static assert parameters
+                        static assert(Parameters!(Mapping.Action).length is 1 && is(Parameters!(Mapping.Action)[0] == A),
+                            "the func in " ~ ForMember.stringof ~ " must take a value of type '" ~ A.stringof ~"'");
+                        __traits(getMember, b, Mapping.DestMember) = Mapping.Action(a);
+                    }
+                }
+            }
+
+            return b;
+        }
+
+        TDest map(TSource a)
+        {
+            import std.algorithm : canFind;
+
+            // init return value
+            static if (isClass!B)
+                B b = new B();
+            else
+                B b;
+
+            // auto complete mappping
+            alias AutoMapping = Mappings;
+
+            // warn about un-mapped members in B
+            static foreach(member; ClassMembers!B) {
+                static if (!listMappedObjectMember!(AutoMapping).canFind(member)) {
+                    static assert(false, "non mapped member in destination object '" ~ B.stringof ~"." ~ member ~ "'");
+                }
+            }
+
+            // instanciate class member
+            static foreach(member; ClassMembers!B) {
+                static if (isClass!(MemberType!(B, member))) {
+                    __traits(getMember, b, member) = new MemberType!(B, member);
+                }
+            }
+
+            // generate mapping code
+            static foreach(Mapping; AutoMapping) {
+                static if (isObjectMemberMappingConfig!Mapping) {
+                    static assert(hasNestedMember!(B, Mapping.DestMember), Mapping.DestMember ~ " is not a member of " ~ 
+                        B.stringof);
+
+                    // ForMember - mapMember
+                    static if (isForMember!(Mapping, ForMemberConfigType.mapMember)) {
+                        static assert(hasNestedMember!(A, Mapping.Action), Mapping.Action ~ " is not a member of " ~ 
+                            A.stringof);
+
+                        // same type
+                        static if (is(MemberType!(B, Mapping.DestMember) == MemberType!(A, Mapping.Action))) {
+                            mixin(GetMember!(b, Mapping.DestMember)) = 
+                                _automapper.transform(mixin(GetMember!(a, Mapping.Action))); // b.member = a. member;
+                        }
+                        // different type: map
+                        else {
+                            __traits(getMember, b, Mapping.DestMember) = _automapper.map!(
                                 MemberType!(B, Mapping.DestMember),
                                 MemberType!(A, Mapping.Action))(__traits(getMember, a, Mapping.Action)); // b.member = context.map(a.member);
                         }

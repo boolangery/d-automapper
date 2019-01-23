@@ -66,12 +66,12 @@ unittest
 {
     import automapper : MapperConfiguration, CreateMap;
 
-    class A {
+    static class A {
         string foo;
         int bar;
     }
 
-    class B {
+    static class B {
         string qux;
         int baz;
     }
@@ -88,12 +88,12 @@ unittest
 {
     import automapper : MapperConfiguration, CreateMap;
 
-    class A {
+    static class A {
         string foo;
         int bar;
     }
 
-    class B {
+    static class B {
         string qux;
         int baz;
         long ts;
@@ -134,11 +134,11 @@ unittest
     import automapper;
     import std.datetime : SysTime;
 
-    class A {
+    static class A {
         long timestamp;
     }
 
-    class B {
+    static class B {
         SysTime timestamp;
     }
 
