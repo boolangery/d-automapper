@@ -238,10 +238,12 @@ public:
 */
 class RuntimeAutoMapper
 {
-    public Object[TypeInfo] runtimeMappers;
-    public Object[TypeInfo] transformers;
-    public Object[TypeInfo] converters;
+    package Object[TypeInfo] runtimeMappers;
+    package Object[TypeInfo] transformers;
+    package Object[TypeInfo] converters;
 
+public:
+    /// Retrive a mapper instance.
     IMapper!(TSource, TDest) getMapper(TDest, TSource)()
     {
         alias I = IMapper!(TSource, TDest);
@@ -257,7 +259,8 @@ class RuntimeAutoMapper
         }
     }
 
-    TDest map(TDest, TSource)(TSource value)
+    /// Map a source object to a dest object.
+    TDest map(TDest, TSource)(TSource value) if (isClassOrStruct!TSource && isClassOrStruct!TDest)
     {
         // enum id = uniquePairIdentifier!(TSource, TDest);
         alias I = IMapper!(TSource, TDest);
@@ -273,6 +276,38 @@ class RuntimeAutoMapper
         }
     }
 
+    TDest map(TDest, TSource)(TSource source) if (isArray!TSource && isArray!TDest)
+    {
+        TDest ret = TDest.init;
+
+        foreach(ForeachType!TSource elem; source) {
+            static if (is(ForeachType!TSource == ForeachType!TDest))
+                ret ~= elem; // same array type, just copy
+            else
+                ret ~= this.map!(ForeachType!TDest)(elem); // else map
+        }
+
+        return ret;
+    }
+
+    /// ditto
+    TDest map(TDest, TSource)(TSource source)
+        if (!isArray!TDest && (!isClassOrStruct!TSource || !isClassOrStruct!TDest))
+    {
+        alias I = ITypeConverter!(TSource, TDest);
+        auto info = typeid(I);
+
+        Object* converter = (info in converters);
+
+        if (converters !is null) {
+            return (cast(I) *converter).convert(source);
+        }
+        else {
+            throw new Exception("No converter found for converting from " ~ TSource.stringof ~ " to " ~ TDest.stringof);
+        }
+    }
+
+    /// Transform a value using registered value transformers.
     TValue transform(TValue)(TValue value)
     {
         // enum id = uniqueTypeIdentifier!TValue;
@@ -293,17 +328,22 @@ class RuntimeAutoMapper
 ///
 unittest
 {
+    import std.datetime : SysTime;
     import automapper;
 
     static class A {
         string foo = "foo";
+        long timestamp;
     }
 
     static class B {
         string bar;
+        SysTime timestamp;
     }
 
-    auto am = MapperConfiguration!(
+    RuntimeAutoMapper am = MapperConfiguration!(
+        CreateMap!(long, SysTime)
+            .ConvertUsing!((long ts) => SysTime(ts)),
         CreateMap!(A, B)
             .ForMember!("bar", "foo"))
                 .createMapper().createRuntimeContext();
