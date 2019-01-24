@@ -83,7 +83,39 @@ void main()
     assert(order.customer.email == initial.customer.email);
     assert(order.product.price  == initial.product.price);
     assert(order.product.name   == initial.product.name);
+
+    // more suitable runtime mapper
+    RuntimeAutoMapper m = mapper.createRuntimeContext();
 }
+```
+
+## Run Time
+
+To be as fast as possible, AutoMapper do by deafult all its magic at compile-time (See example bellow).
+Mapping check are static asserted.
+
+It implies that AutoMapper type is specialized using templates:
+
+```D
+alias AM = AutoMapper!(MapperConfiguration!(CreateMap!(Order, OrderDTO, ReverseMapConfig)));
+
+AM mapper = MapperConfiguration!(
+        CreateMap!(Order, OrderDTO)
+            .ReverseMap!())
+            .createMapper();
+```
+
+It may be difficult to pass this complex object along your framework. Its why you can use
+a slower version, that check things at runtime. 
+
+The example above became:
+
+```D
+RuntimeAutoMapper mapper = MapperConfiguration!(
+        CreateMap!(Order, OrderDTO)
+            .ReverseMap!())
+            .createMapper()
+            .createRuntimeContext();
 ```
 
 ## Custom member mapping
