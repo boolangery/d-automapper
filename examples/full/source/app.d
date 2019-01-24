@@ -62,5 +62,6 @@ void main()
     assert(order.product.price  == initial.product.price);
     assert(order.product.name   == initial.product.name);
 
-	writeln("Success");
+    // more suitable runtime mapper
+    RuntimeAutoMapper m = mapper.createRuntimeContext();
 }
