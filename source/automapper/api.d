@@ -84,28 +84,9 @@ unittest
 }
 
 ///
-unittest
-{
-    import automapper : MapperConfiguration, CreateMap;
 
-    static class A {
-        string foo;
-        int bar;
-    }
 
-    static class B {
-        string qux;
-        int baz;
-        long ts;
-    }
 
-    MapperConfiguration!(
-        CreateMap!(A, B)
-            .ForMember!("qux", "foo")
-            .ForMember!("baz", "foo")
-            .Ignore!("ts"))
-                .createMapper();
-}
 
 /// entry point for bulding a type converter configuration
 class CreateMap(A, B) if (!isClassOrStruct!A || !isClassOrStruct!B)

@@ -30,6 +30,8 @@ public import automapper.naming;
     AutoMapper entry point.
 
     Used to create low runtime overhead mapper for object or struct.
+
+    Mappings are compile-time checked.
 */
 class AutoMapper(MC) if (is(MC : MapperConfiguration!(C), C))
 {
@@ -140,13 +142,15 @@ public:
                 mixin(q{%s = new Trans(); }.format(uniqueTransformerIdentifier!TValue));
     }
 
-    auto createRuntimeContext()
+    /// It create a RuntimeAutoMapper that is an AutoMapper more suitable for runtime operation.
+    /// It means that errors are thrown at runtime. 
+    RuntimeAutoMapper createRuntimeContext()
     {
         auto context = new RuntimeAutoMapper();
 
         // fill mapper
         static foreach (Mapper; FullMappers)
-            context.runtimeMappers[typeid(IMapper!(Mapper.TS, Mapper.TD))] = new Mapper(context);
+            context.runtimeMappers[typeid(IMapper!(Mapper.TSource, Mapper.TDest))] = new Mapper(context);
 
         // fill converters
         static foreach (Conv; TypesConverters)
@@ -276,6 +280,7 @@ public:
         }
     }
 
+    /// ditto
     TDest map(TDest, TSource)(TSource source) if (isArray!TSource && isArray!TDest)
     {
         TDest ret = TDest.init;
@@ -348,7 +353,7 @@ unittest
             .ForMember!("bar", "foo"))
                 .createMapper().createRuntimeContext();
 
-    const auto b = am.map!B(new A());
+    am.map!B(new A());
 }
 
 

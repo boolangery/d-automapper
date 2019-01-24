@@ -182,10 +182,10 @@ class MapperConfiguration(Configs...) // if (allSatisfy!(isConfigurationObject, 
 unittest
 {
     import automapper;
-    import std.datetime;
+    import std.datetime : SysTime;
 
     static class Address {
-        long zipcode = 42420;
+        long zipcode = 42_420;
         string city = "London";
     }
 
@@ -223,7 +223,7 @@ unittest
     auto am = MyConfig.createMapper();
 
     auto user = new User();
-    UserDTO dto = am.map!UserDTO(user);
+    const UserDTO dto = am.map!UserDTO(user);
 
     assert(dto.fullName == user.name ~ " " ~ user.lastName);
     assert(dto.addressCity == user.address.city);

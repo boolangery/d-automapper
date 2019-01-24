@@ -309,7 +309,8 @@ template isSpecifiedCallable(alias D, P, RT)
 ///
 unittest
 {
-    static assert(isSpecifiedCallable!((long ts) => "foo", long, string));
+    import std.conv : to;
+    static assert(isSpecifiedCallable!((long ts) => ts.to!string, long, string));
 }
 
 /// Returns true if T has the specified callable
