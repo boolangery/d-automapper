@@ -65,20 +65,32 @@ void main()
 
     void autoMapper() {
         auto o = makeOrder();
-        auto m = am.map!OrderDTO(o);
+        am.map!OrderDTO(o);
     }
 
     void manual() {
         auto o = makeOrder();
-        auto m = manualMap(o);
+        manualMap(o);
     }
 
     auto r = benchmark!(autoMapper, manual)(50_000);
-    Duration automapperResult = r[0];
-    Duration manualResult = r[1];
 
-    writeln("AutoMapper: ", automapperResult);
-    writeln("Manual    : ", manualResult);
+    writeln("CompileTime AutoMapper: ");
+    writeln("AutoMapper: ", r[0]);
+    writeln("Manual    : ", r[1]);
 
-	writeln("Success");
+	writeln("---------------------------------------");
+
+    auto rtAm = am.createRuntimeContext();
+
+    void runtimeAutoMapper() {
+        auto o = makeOrder();
+        rtAm.map!OrderDTO(o);
+    }
+
+    auto r2 = benchmark!(runtimeAutoMapper, manual)(50_000);
+
+    writeln("Runtime AutoMapper: ");
+    writeln("Runtime AutoMapper: ", r2[0]);
+    writeln("Manual    : ", r2[1]);
 }
